@@ -180,6 +180,8 @@ LEGACY_THEME_MIGRATIONS = {
 
 # RGB sources and ANSI adaptation details are recorded in THEME_SOURCES.txt.
 # Solarized follows the local Vim variant, including its experimental green.
+# Gruvbox/PaperColor/Peaksea use syntax highlight accents in ANSI 1–6 and
+# repeat them in 9–14, so normal and bright output share the Vim colors.
 THEMES = {
     **{key: {"name": name, "foreground": fg, "background": bg, "cursor": fg,
              "palette": GNOME_PALETTE.copy()}
@@ -203,33 +205,33 @@ THEMES = {
     },
     "gruvbox-light": {
         "name": "Gruvbox Light", "foreground": "#3c3836", "background": "#fbf1c7", "cursor": "#3c3836",
-        "palette": ["#fbf1c7", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#7c6f64",
+        "palette": ["#fbf1c7", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#7c6f64",
                     "#928374", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#3c3836"],
     },
     "gruvbox-dark": {
         "name": "Gruvbox Dark", "foreground": "#ebdbb2", "background": "#282828", "cursor": "#ebdbb2",
-        "palette": ["#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
+        "palette": ["#282828", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#a89984",
                     "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2"],
     },
     "papercolor-light": {
         "name": "PaperColor Light", "foreground": "#444444", "background": "#eeeeee", "cursor": "#005f87",
-        "palette": ["#eeeeee", "#af0000", "#008700", "#5f8700", "#0087af", "#878787", "#005f87", "#444444",
-                    "#bcbcbc", "#d70000", "#d70087", "#8700af", "#d75f00", "#d75f00", "#005faf", "#005f87"],
+        "palette": ["#eeeeee", "#af0000", "#5f8700", "#d75f00", "#005faf", "#8700af", "#005f87", "#444444",
+                    "#878787", "#af0000", "#5f8700", "#d75f00", "#005faf", "#8700af", "#005f87", "#444444"],
     },
     "papercolor-dark": {
         "name": "PaperColor Dark", "foreground": "#d0d0d0", "background": "#1c1c1c", "cursor": "#c6c6c6",
-        "palette": ["#1c1c1c", "#af005f", "#5faf00", "#d7af5f", "#5fafd7", "#808080", "#d7875f", "#d0d0d0",
-                    "#585858", "#5faf5f", "#afd700", "#af87d7", "#ffaf00", "#ff5faf", "#00afaf", "#5f8787"],
+        "palette": ["#1c1c1c", "#af005f", "#d7af5f", "#ff5faf", "#00afaf", "#af87d7", "#d7875f", "#d0d0d0",
+                    "#808080", "#af005f", "#d7af5f", "#ff5faf", "#00afaf", "#af87d7", "#d7875f", "#d0d0d0"],
     },
     "peaksea-light": {
         "name": "Peaksea Light", "foreground": "#000000", "background": "#e0e0e0", "cursor": "#008000",
-        "palette": ["#e0e0e0", "#c03000", "#009030", "#907000", "#007068", "#a030a0", "#2060a8", "#000000",
-                    "#686868", "#c03000", "#009030", "#907000", "#007068", "#a030a0", "#2060a8", "#000000"],
+        "palette": ["#e0e0e0", "#c03000", "#009030", "#907000", "#2060a8", "#a030a0", "#007068", "#000000",
+                    "#606000", "#c03000", "#009030", "#907000", "#2060a8", "#a030a0", "#007068", "#000000"],
     },
     "peaksea-dark": {
         "name": "Peaksea Dark", "foreground": "#d0d0d0", "background": "#202020", "cursor": "#00f000",
-        "palette": ["#202020", "#f08060", "#60f080", "#e0c060", "#80c0e0", "#f0c0f0", "#c0d8f8", "#d0d0d0",
-                    "#b0b0b0", "#f08060", "#60f080", "#e0c060", "#80c0e0", "#f0c0f0", "#c0d8f8", "#d0d0d0"],
+        "palette": ["#202020", "#f08060", "#60f080", "#e0c060", "#c0d8f8", "#f0c0f0", "#80c0e0", "#d0d0d0",
+                    "#d0d090", "#f08060", "#60f080", "#e0c060", "#c0d8f8", "#f0c0f0", "#80c0e0", "#d0d0d0"],
     },
 }
 

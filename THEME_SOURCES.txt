@@ -1,4 +1,4 @@
-终端主题来源与映射（2026-10-16）
+终端主题来源与映射（2026-10-20）
 
 主题是打包的 RGB 快照，不在启动时执行或修改 Vim 配置。
 所有 palette 数组按 ANSI 0–15 排列；只设置这 16 色，保留 VTE 的其余
@@ -32,28 +32,42 @@ Light 将八种 base 色按本机 light 分支反转；文字和光标均取 bas
 
 Gruvbox Light / Dark
 本机：~/.vim_runtime/sources_non_forked/gruvbox/colors/gruvbox.vim
-使用默认 medium 对比度、Normal 的 fg1/bg0 和 274 行起的 terminal_color_0–15。
-光标使用前景色；普通色为 neutral，亮色采用 light 的 faded / dark 的 bright。
+使用默认 medium 对比度、Normal 的 fg1/bg0，光标使用前景色。
+ANSI 1–6 对应 Statement/String/Type/Identifier/Constant/PreProc 的 GUI RGB，
+普通色和亮色 9–14 均使用 light 的 faded / dark 的 bright。
+不再把 Neovim 内嵌终端的 neutral 普通色当成 Vim 语法高亮色。
+0/7/8/15 仍为 bg0/fg4/gray/fg1，其中 gray 与 Comment 一致。
 项目：https://github.com/morhetz/gruvbox
 
 PaperColor Light / Dark
-经用户确认使用官方完整主题；本机只找到 lightline 状态栏版本。
+本机：~/.vim_runtime/my_plugins/papercolor/colors/papercolor.vim
 来源：https://github.com/NLKNguyen/papercolor-theme/blob/master/colors/PaperColor.vim
-使用 default.light/default.dark 的 color00–color15 原始顺序作为终端 16 色，
-前景取 color07，背景取 color00，光标取 cursor_bg。
-不是较旧 papercolor-16 仓库中的 Base16 变体，也不是 lightline 状态栏配色。
+使用本地完整主题 default.light/default.dark 的 GUI RGB；前景取 color07，
+背景取 color00，光标取 cursor_bg。不是 lightline 状态栏配色。
+ANSI 1–6 对应 Error/String/Number/Keyword/Conditional/Identifier，
+即 color01/color03/color13/color14/color11/color06；9–14 复用这些语法色。
+0/7/8/15 为 color00/color07/color05/color07，8 使用 Comment。
+color00–15 是主题内部的语法角色表，不能直接当成通用 ANSI 色序：
+例如 color05 是注释灰，color10 是 Statement/Type，color13 是数字色。
+保留原主题的角色用色，因此 Dark 的字符串为米黄、数字为粉色。
 
 Peaksea Light / Dark
 本机：~/.vim_runtime/sources_forked/peaksea/colors/peaksea.vim
 使用 LIGHT / DARK COLOR DEFINE 段中的 GUI RGB，Normal 和 Cursor 分别提供
 前景、背景和光标颜色。原文件没有独立的 terminal_color_0–15 数组。
-ANSI 映射依据本机 16 色 cterm 段的组名：
-  0=Normal.bg，1=Error.fg，2=PreProc.fg，3=Special.fg，
-  4=Constant.fg，5=Identifier.fg，6=Statement.fg，7=Normal.fg，
-  8=LineNr.fg，9–14 分别复用 1–6，15=Normal.fg。
+ANSI 映射采用本机语法高亮组的 GUI RGB：
+  0=Normal.bg，1=Error.fg，2=PreProc.fg，3=Number.fg，
+  4=Statement.fg，5=Identifier.fg，6=Constant.fg，7=Normal.fg，
+  8=Comment.fg，9–14 分别复用 1–6，15=Normal.fg。
 亮色复用原主题对应颜色，不凭空增亮；Light 同样沿用这些组名映射。
 这属于将 Vim 主题适配到终端 ANSI 的约定，并非原作者提供的终端预设。
 项目：https://www.vim.org/scripts/script.php?script_id=760
+
+上述三组主题让 ANSI 输出采用 Vim 的主要语法用色，并非完整的 Vim 语法规则。
+终端无法判断输出里的关键词、字符串和注释，具体选用哪个 ANSI 槽仍由程序决定。
+16 色也无法容纳所有高亮组；没有覆盖的组继续由应用自己的配色控制。
+这里以 GUI RGB 为颜色基准；Vim 未启用 termguicolors 时可能使用近似的 256 色。
+索引 16–255 和程序直接输出的 truecolor RGB 不受这些 ANSI 预设影响。
 
 已删除经典紫、深色、浅色、深海蓝预设；只保留旧标识和颜色用于识别配置迁移。
 classic/ocean → ubuntu-default，dark → gnome-gray-on-black，light → gnome-black-on-white。

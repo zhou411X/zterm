@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import pwd
+import re
 import sys
 import threading
 import time
@@ -20,6 +21,7 @@ from model import (AliasStore, AppearanceStore, THEMES, INTERFACE_THEMES,
                    bash_ssh_aliases, default_appearance, interface_colors, ssh_command,
                    server_ssh_command, validate_server, legacy_server_profile)
 import credentials
+from file_browser import FileTransfers
 from quota import fetch as fetch_quota, display as display_quota
 
 
@@ -80,6 +82,15 @@ class InterfaceStyle:
             @scope list, @scope viewport, @scope notebook, @scope stack {
                 background-color: @background; color: @foreground;
             }
+            @scope treeview.view {
+                background-color: @background; color: @foreground;
+            }
+            @scope treeview.view:selected {
+                background-color: @selection; color: @foreground;
+            }
+            @scope progressbar text { color: @foreground; }
+            @scope progressbar trough { background: @surface; min-height: 6px; }
+            @scope progressbar progress { background: @accent; min-height: 6px; }
             @scope button, @scope entry {
                 background: @surface; color: @foreground; border-color: @border;
                 box-shadow: none; text-shadow: none;
@@ -115,10 +126,18 @@ class InterfaceStyle:
 
 class AppearanceDialog(Gtk.Dialog):
     def __init__(self, window):
-        super().__init__(title="外观设置", transient_for=window, modal=True)
+        super().__init__(title="外观设置", modal=False)
         self.owner = window
+        self.set_application(window.get_application())
+        self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
+        self.set_skip_taskbar_hint(False)
+        self.set_icon(window.get_icon())
+        header = Gtk.HeaderBar(title="外观设置", show_close_button=True)
+        header.set_decoration_layout(":minimize,maximize,close")
+        self.set_titlebar(header)
+        self.owner_destroy_handler = window.connect("destroy", lambda *_: self.destroy())
         window.interface_style.attach(self)
-        self.connect("destroy", lambda *_: window.interface_style.apply(window.appearance))
+        self.connect("destroy", self.on_destroy)
         self.loading = True
         self.set_default_size(600, 540)
         self.add_buttons("恢复默认", Gtk.ResponseType.REJECT,
@@ -173,6 +192,12 @@ class AppearanceDialog(Gtk.Dialog):
         self.set_values(window.appearance)
         self.connect("response", self.respond)
         self.show_all()
+
+    def on_destroy(self, *_):
+        if self.owner.appearance_dialog is self:
+            self.owner.appearance_dialog = None
+        self.owner.disconnect(self.owner_destroy_handler)
+        self.owner.interface_style.apply(self.owner.appearance)
 
     def set_values(self, settings):
         self.loading = True
@@ -458,10 +483,13 @@ class Session(Gtk.Box):
         # number is a stable drag identity; tab_title follows the page position.
         self.tab_title = f"[{number}]"
         self.tab_suffix = ""
+        self.activity_title = ""
         self.tab_label = Gtk.Label(label=self.tab_title)
-        self.tab_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        self.tab_label.set_width_chars(min(len(self.tab_title), 32))
-        self.tab_label.set_max_width_chars(32)
+        self.tab_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.tab_label.set_xalign(0)
+        # Keep the natural label width small; the row supplies its fixed width.
+        self.tab_label.set_width_chars(1)
+        self.tab_label.set_max_width_chars(1)
         self.tab_label.set_tooltip_text(self.tab_title)
         self.terminal = Vte.Terminal()
         self.terminal.set_scrollback_lines(20000)
@@ -492,9 +520,14 @@ class Session(Gtk.Box):
         self.refresh_tab_label()
 
     def refresh_tab_label(self):
-        self.tab_label.set_text(self.tab_title + self.tab_suffix)
-        self.tab_label.set_width_chars(min(len(self.tab_title), 32))
-        self.title_changed(self.terminal)
+        activity = self.activity_title or Path(self.argv[0]).name
+        # A directory/file named codex is not a reported Codex application title.
+        codex = self.active and re.search(r"(?<![\w/.-])codex(?![\w/.-])",
+                                         activity, re.IGNORECASE)
+        marker = " [CODEX]" if codex else ""
+        title = f"{self.tab_title}{marker} {activity}{self.tab_suffix}"
+        self.tab_label.set_text(title)
+        self.tab_label.set_tooltip_text(title)
 
     def start(self):
         if self.closed or self.active:
@@ -503,6 +536,7 @@ class Session(Gtk.Box):
         self.pid = None
         self.cancel = Gio.Cancellable()
         self.status_detail = "正在启动 " + self.window.display_name(self.alias) + "…"
+        self.activity_title = ""
         self.tab_suffix = ""
         self.refresh_tab_label()
         self.window.render_status()
@@ -543,8 +577,9 @@ class Session(Gtk.Box):
         self.window.render_status()
 
     def title_changed(self, terminal):
-        title = terminal.get_window_title()
-        self.tab_label.set_tooltip_text(self.tab_title + ("\n" + title if title else ""))
+        # Titles may contain newlines; tabs and their tooltips remain one line.
+        self.activity_title = " ".join((terminal.get_window_title() or "").split())
+        self.refresh_tab_label()
 
     def context_menu(self, terminal, event):
         if event.button != 3:
@@ -566,6 +601,15 @@ class Session(Gtk.Box):
         self.cancel.cancel()
         # Destroying the terminal releases its PTY and hangs up the child.
         self.destroy()
+
+
+class SessionTab(Gtk.Box):
+    """A fixed logical width, independent of the terminal title's length."""
+
+    WIDTH = 240
+
+    def do_get_preferred_width(self):
+        return self.WIDTH, self.WIDTH
 
 
 class SessionNotebook(Gtk.Notebook):
@@ -622,8 +666,8 @@ class SessionNotebook(Gtk.Notebook):
         self.tab_scroll.get_hadjustment().connect("changed", lambda *_: self.reveal_current())
 
     def add_tab(self, session, close_session):
-        row = Gtk.Box()
-        row.set_size_request(160, -1)
+        row = SessionTab()
+        row.set_size_request(SessionTab.WIDTH, -1)
         select = Gtk.ToggleButton()
         select.set_relief(Gtk.ReliefStyle.NONE)
         select.set_focus_on_click(False)
@@ -727,6 +771,7 @@ class Window(Gtk.ApplicationWindow):
         self.store = store or AliasStore()
         self.server_dialog = None
         self.server_editors = {}
+        self.appearance_dialog = None
         self.appearance_store = AppearanceStore(self.store.path.with_name("appearance.json"))
         self.appearance_error = None
         try:
@@ -762,7 +807,7 @@ class Window(Gtk.ApplicationWindow):
         self.settings_menu = Gtk.Menu()
         self.interface_style.attach(self.settings_menu)
         for label, callback in [("快捷键", lambda _: self.show_shortcuts()),
-                                ("外观设置", lambda _: AppearanceDialog(self)),
+                                ("外观设置", lambda _: self.show_appearance()),
                                 ("订阅额度", lambda _: self.quota_settings())]:
             item = Gtk.MenuItem(label=label)
             item.connect("activate", callback)
@@ -770,6 +815,9 @@ class Window(Gtk.ApplicationWindow):
         self.settings_menu.show_all()
         self.settings_button.set_popup(self.settings_menu)
         header.pack_end(self.settings_button)
+        self.files_toggle = Gtk.ToggleButton(label="文件")
+        self.files_toggle.set_tooltip_text("浏览当前服务器的 SFTP 文件")
+        header.pack_end(self.files_toggle)
         self.set_titlebar(header)
         pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.pane = pane
@@ -803,11 +851,7 @@ class Window(Gtk.ApplicationWindow):
         self.sidebar = side
         side.get_style_context().add_class("workspace-sidebar")
         side.set_size_request(170, -1)
-        server_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        server_header.pack_start(Gtk.Label(label="服务器", xalign=0), True, True, 0)
-        self.add_server_button = button("添加服务器", lambda _: self.add_dialog(), "新增服务器")
-        server_header.pack_end(self.add_server_button, False, False, 0)
-        side.pack_start(server_header, False, False, 4)
+        side.pack_start(Gtk.Label(label="服务器", xalign=0), False, False, 4)
         self.search = Gtk.SearchEntry(placeholder_text="搜索别名或 IP")
         self.search.connect("search-changed", lambda _: self.server_list.invalidate_filter())
         side.pack_start(self.search, False, False, 0)
@@ -847,6 +891,8 @@ class Window(Gtk.ApplicationWindow):
                                   "修改所选服务器的名称、IP、用户名、密码或端口")
         self.edit_button.set_sensitive(False)
         side.pack_end(self.edit_button, False, False, 0)
+        self.add_server_button = button("添加服务器", lambda _: self.add_dialog(), "新增服务器")
+        side.pack_end(self.add_server_button, False, False, 0)
         pane.pack1(side, False, False)
         self.stack = Gtk.Stack()
         welcome = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -859,13 +905,20 @@ class Window(Gtk.ApplicationWindow):
                                     "选择服务器后，用最后一个标签后的 ＋ 打开更多会话。\n"
                                     "切换服务器会保留当前连接。", justify=Gtk.Justification.CENTER), False, False, 0)
         self.stack.add_named(welcome, "welcome")
-        pane.pack2(self.stack, True, False)
+        self.files = FileTransfers(self)
+        self.file_pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.file_pane.pack1(self.stack, True, False)
+        self.file_pane.pack2(self.files.panel, False, False)
+        pane.pack2(self.file_pane, True, False)
         self.add_row("")
         for alias in self.aliases:
             self.add_row(alias)
         self.connect("key-press-event", self.key_pressed)
         self.connect("delete-event", self.close_window)
         self.show_all()
+        self.files.panel.hide()
+        self.files.panel.set_no_show_all(True)
+        self.files_toggle.connect("toggled", self.files.toggle)
         side.set_no_show_all(True)
         self.sidebar_toggle.connect("toggled", self.toggle_sidebar)
         self.server_list.unselect_all()
@@ -1069,6 +1122,8 @@ class Window(Gtk.ApplicationWindow):
             row.set_tooltip_text(row.get_tooltip_text() + "\n拖动可调整服务器顺序；右键编辑服务器")
 
     def server_updated(self, alias):
+        if self.files.panel.endpoint and self.files.panel.endpoint.server_id == alias:
+            self.files.select_server(alias)
         self.update_row(self.rows[alias])
         self.server_list.invalidate_filter()
         # A running process keeps its connection; the next restart uses new argv.
@@ -1089,6 +1144,9 @@ class Window(Gtk.ApplicationWindow):
         duplicate = Gtk.MenuItem(label="复制服务器")
         duplicate.connect("activate", lambda *_: self.duplicate_alias(alias))
         menu.append(duplicate)
+        files = Gtk.MenuItem(label="浏览文件（SFTP）")
+        files.connect("activate", lambda *_: self.files.show_server(alias))
+        menu.append(files)
         menu.attach_to_widget(self.server_list, None)
         self.interface_style.attach(menu)
         menu.connect("selection-done", lambda *_: menu.destroy())
@@ -1161,6 +1219,12 @@ class Window(Gtk.ApplicationWindow):
         self.server_dialog.present()
         return self.server_dialog
 
+    def show_appearance(self):
+        if self.appearance_dialog is None:
+            self.appearance_dialog = AppearanceDialog(self)
+        self.appearance_dialog.present()
+        return self.appearance_dialog
+
     def edit_dialog(self, alias):
         if alias not in self.aliases:
             return None
@@ -1173,6 +1237,7 @@ class Window(Gtk.ApplicationWindow):
         if row is None:
             return
         self.current = row.alias
+        self.files.select_server(row.alias)
         self.update_server_title()
         self.render_quota()
         self.refresh_quota()
@@ -1224,6 +1289,9 @@ class Window(Gtk.ApplicationWindow):
         alias = self.current
         if not alias:
             return
+        if self.files.manager.active(alias):
+            self.info("文件传输尚未结束", "请先在传输队列取消或等待此服务器的任务，再移除服务器。")
+            return
         notebook = self.groups.get(alias)
         sessions = notebook.get_children() if notebook else []
         if any(session.active for session in sessions) and not self.confirm(
@@ -1244,6 +1312,7 @@ class Window(Gtk.ApplicationWindow):
         # Deselect before removing the row: GTK may otherwise select a neighbour.
         self.server_list.unselect_all()
         self.current = None
+        self.files.select_server(None)
         self.rows.pop(alias).destroy()
         if notebook:
             for session in sessions:
@@ -1315,8 +1384,12 @@ class Window(Gtk.ApplicationWindow):
     def close_window(self, *_):
         sessions = [session for group in self.groups.values() for session in group.get_children()]
         count = sum(session.active for session in sessions)
-        if count and not self.confirm("关闭 zTerm？", f"还有 {count} 个活动会话，关闭窗口将终止这些会话。"):
+        transfers = len(self.files.manager.active())
+        if (count or transfers) and not self.confirm(
+                "关闭 zTerm？", f"还有 {count} 个活动会话、{transfers} 个文件任务。\n"
+                "关闭将终止会话并取消文件任务；选择取消可继续等待。"):
             return True
+        self.files.close()
         for session in sessions:
             session.dispose()
         return False

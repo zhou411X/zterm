@@ -311,7 +311,7 @@ class TerminalTests(unittest.TestCase):
             window = Window(store=store, enable_quota=False,
                             command_factory=lambda _: ["/bin/cat"])
             try:
-                # 侧栏顶部的“添加服务器”始终可见，且不再出现在“设置”菜单中。
+                # 侧栏底部的“添加服务器”始终可见，且不再出现在“设置”菜单中。
                 pump_until(lambda: window.add_server_button.get_mapped())
                 self.assertTrue(window.add_server_button.get_visible())
                 self.assertNotIn("添加服务器", [item.get_label()
@@ -716,6 +716,71 @@ class TerminalTests(unittest.TestCase):
                     proceed.set()
                     window.destroy()
 
+    def test_appearance_window_is_independent_and_reused(self):
+        from app import AppearanceDialog, Window, Gdk, Gtk
+
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(enable_quota=False, store=AliasStore(Path(directory) / "servers.json"),
+                            command_factory=lambda _: ["/bin/cat"])
+            window.confirm = lambda *_: True
+            dialog = None
+            try:
+                window.server_list.select_row(window.rows[""])
+                session = window.groups[""].get_nth_page(0)
+                pump_until(lambda: session.alive and window.get_mapped())
+                pid = session.pid
+                original = window.appearance.copy()
+                item = next(item for item in window.settings_menu.get_children()
+                            if item.get_label() == "外观设置")
+                item.activate()
+                dialog = next(widget for widget in Gtk.Window.list_toplevels()
+                              if isinstance(widget, AppearanceDialog) and widget.owner is window)
+                self.assertFalse(dialog.get_modal())
+                self.assertIsNone(dialog.get_transient_for())
+                self.assertEqual(dialog.get_type_hint(), Gdk.WindowTypeHint.NORMAL)
+                self.assertFalse(dialog.get_skip_taskbar_hint())
+                self.assertTrue(dialog.get_titlebar().get_show_close_button())
+                pump_until(lambda: dialog.get_mapped())
+                main_size = tuple(window.get_size())
+                dialog.resize(760, 680)
+                pump_until(lambda: dialog.get_size().width >= 760)
+                self.assertEqual(tuple(window.get_size()), main_size)
+                dialog_size = tuple(dialog.get_size())
+                window.resize(main_size[0] + 100, main_size[1] + 80)
+                pump_until(lambda: window.get_size().width > main_size[0])
+                self.assertEqual(tuple(dialog.get_size()), dialog_size)
+
+                dialog.theme.set_active_id("papercolor-light")
+                draft = dialog.values()
+                item.activate()
+                self.assertIs(window.appearance_dialog, dialog)
+                self.assertEqual(dialog.values(), draft)
+                self.assertEqual(sum(isinstance(widget, AppearanceDialog) and widget.owner is window
+                                     for widget in Gtk.Window.list_toplevels()), 1)
+                added = window.new_session()
+                pump_until(lambda: added.alive)
+                self.assertEqual(session.pid, pid)
+                dialog.close()
+                pump_until(lambda: window.appearance_dialog is None)
+                self.assertEqual(window.appearance, original)
+                self.assertFalse(window.appearance_store.path.exists())
+
+                item.activate()
+                replacement = window.appearance_dialog
+                self.assertIsNot(replacement, dialog)
+                self.assertEqual(replacement.values(), original)
+                destroyed = []
+                replacement.connect("destroy", lambda *_: destroyed.append(True))
+                window.close_window()
+                window.destroy()
+                self.assertEqual(destroyed, [True])
+                self.assertIsNone(window.appearance_dialog)
+            finally:
+                if dialog is not None:
+                    dialog.destroy()
+                window.close_window()
+                window.destroy()
+
     def test_add_server_window_is_independent_and_reused(self):
         from app import Window, Gdk, Gtk
 
@@ -752,6 +817,81 @@ class TerminalTests(unittest.TestCase):
                 window.close_window()
                 window.destroy()
                 self.assertTrue(replacement.closed)
+            finally:
+                window.close_window()
+                window.destroy()
+
+    def test_activity_titles_from_pty_codex_badge_and_fixed_tab_width(self):
+        from app import Window, Gdk
+
+        script = ("import sys\n"
+                  "for line in sys.stdin:\n"
+                  " title = line.rstrip('\\n')\n"
+                  " if title == '__exit__': break\n"
+                  " sys.stdout.write('\\x1b]2;' + title + '\\x07')\n"
+                  " sys.stdout.flush()\n")
+        with tempfile.TemporaryDirectory() as directory:
+            store = AliasStore(Path(directory) / "servers.json")
+            store.save(["dev-server"])
+            window = Window(store=store, enable_quota=False,
+                            command_factory=lambda _: ["/usr/bin/python3", "-u", "-c", script])
+            window.confirm = lambda *_: True
+            try:
+                window.server_list.select_row(window.rows["dev-server"])
+                first = window.current_session()
+                second = window.new_session()
+                group = window.groups["dev-server"]
+                pump_until(lambda: first.alive and second.alive)
+                pids = [first.pid, second.pid]
+                self.assertEqual(first.tab_label.get_text(), "[1] python3")
+
+                def send_title(session, title):
+                    session.terminal.feed_child((title + "\n").encode())
+                    pump_until(lambda: session.activity_title == title)
+
+                send_title(first, "~/workspace/zterm")
+                self.assertEqual(first.tab_label.get_text(), "[1] ~/workspace/zterm")
+                self.assertEqual(window.header.get_title(), "dev-server")
+                self.assertIs(window.current_session(), second)
+                for title in ("~/workspace/codex", "vim codex.py", "mycodex", "codex-helper"):
+                    send_title(first, title)
+                    self.assertNotIn("[CODEX]", first.tab_label.get_text())
+                title = "Codex · 修复终端标签 " + "很长的任务说明" * 24
+                send_title(first, title)
+                self.assertEqual(first.tab_label.get_text(), "[1] [CODEX] " + title)
+                self.assertEqual(first.tab_label.get_tooltip_text(), first.tab_label.get_text())
+                send_title(second, "vim app.py")
+                pump_until(lambda: all(group.tabs[session][0].get_allocated_width() == 240
+                                       for session in (first, second)))
+                pump_until(lambda: first.tab_label.get_layout().is_ellipsized())
+                self.assertEqual([first.pid, second.pid], pids)
+                for session in (first, second):
+                    row, select = group.tabs[session]
+                    close = row.get_children()[1]
+                    right = close.translate_coordinates(row, close.get_allocated_width(), 0)[0]
+                    self.assertLessEqual(row.get_allocated_width() - right, 8)
+                    self.assertGreaterEqual(row.get_allocated_width() - right, 0)
+                # Preview uses only synthetic titles and a local test PTY.
+                pixbuf = Gdk.pixbuf_get_from_window(window.get_window(), 0, 0,
+                                                   window.get_allocated_width(), window.get_allocated_height())
+                pixbuf.savev("/tmp/zterm-activity-tabs.png", "png", [], [])
+                group.reorder_child(first, 1)
+                self.assertEqual(first.tab_label.get_text(), "[2] [CODEX] " + title)
+                self.assertEqual(second.tab_label.get_text(), "[1] vim app.py")
+                send_title(first, "")
+                self.assertEqual(first.tab_label.get_text(), "[2] python3")
+                send_title(first, "CODEX - test task")
+                self.assertIn("[CODEX]", first.tab_label.get_text())
+                first.terminal.feed_child(b"__exit__\n")
+                pump_until(lambda: not first.active)
+                self.assertEqual(first.tab_label.get_text(), "[2] CODEX - test task · 已结束")
+                first.start()
+                pump_until(lambda: first.alive)
+                self.assertEqual(first.tab_label.get_text(), "[2] python3")
+                self.assertEqual(first.activity_title, "")
+                send_title(first, "bash")
+                self.assertEqual(first.tab_label.get_text(), "[2] bash")
+                self.assertEqual(group.tabs[first][0].get_allocated_width(), 240)
             finally:
                 window.close_window()
                 window.destroy()
@@ -807,13 +947,13 @@ class TerminalTests(unittest.TestCase):
                 pump_until(lambda: not fourth.active)
                 group.reorder_child(fourth, 0)
                 assert_positions([fourth, third, first])
-                self.assertEqual(fourth.tab_label.get_text(), "[1] · 已结束")
+                self.assertEqual(fourth.tab_label.get_text(), "[1] cat · 已结束")
                 window.command_factory = lambda _: ["/zterm-test-nonexistent-executable"]
                 failed = window.new_session()
                 pump_until(lambda: not failed.active)
                 group.reorder_child(failed, 1)
                 assert_positions([fourth, failed, third, first])
-                self.assertEqual(failed.tab_label.get_text(), "[2] · 失败")
+                self.assertEqual(failed.tab_label.get_text(), "[2] zterm-test-nonexistent-executable · 失败")
             finally:
                 window.close_window()
                 window.destroy()
@@ -1066,13 +1206,13 @@ class TerminalTests(unittest.TestCase):
 
             # Before GTK allocates the rows, their initial 1px sizes can also
             # satisfy the gap check. Wait for actual layout before measuring.
-            pump_until(lambda: all(group.tabs[page][0].get_allocated_width() >= 160
+            pump_until(lambda: all(group.tabs[page][0].get_allocated_width() >= 240
                                    for page in (first, second)) and 0 <= inline_gap() <= 6)
-            self.assertLess(group.add_button.translate_coordinates(window, 0, 0)[0], 400)
+            self.assertLess(group.add_button.translate_coordinates(window, 0, 0)[0], 480)
             for page in (first, second):
                 row, select = group.tabs[page]
                 close = row.get_children()[1]
-                self.assertGreaterEqual(row.get_allocated_width(), 160)
+                self.assertEqual(row.get_allocated_width(), 240)
                 self.assertGreater(select.get_allocated_width(), close.get_allocated_width() * 3)
                 close_right = close.translate_coordinates(row, close.get_allocated_width(), 0)[0]
                 self.assertGreaterEqual(row.get_allocated_width() - close_right, 0)
@@ -1385,7 +1525,7 @@ class TerminalTests(unittest.TestCase):
                     edit.assert_called_once_with("dev-server")
                 first = window.groups["dev-server"].get_nth_page(0)
                 pump_until(lambda: first.alive and "READY" in output(first))
-                self.assertEqual(first.tab_label.get_text(), "[1]")
+                self.assertEqual(first.tab_label.get_text(), "[1] sh")
                 self.assertEqual(window.header.get_title(), "dev-server")
                 self.assertEqual(window.get_title(), "dev-server")
                 self.assertEqual(window.connection_label.get_text(), "dev-server · 在线")
@@ -1397,7 +1537,7 @@ class TerminalTests(unittest.TestCase):
                 group.add_button.clicked()
                 second = group.get_nth_page(1)
                 pump_until(lambda: second.alive)
-                self.assertEqual(second.tab_label.get_text(), "[2]")
+                self.assertEqual(second.tab_label.get_text(), "[2] sh")
                 pids_before_toggle = (first.pid, second.pid)
                 original_width = first.terminal.get_allocated_width()
                 window.sidebar_toggle.set_active(False)
@@ -1434,13 +1574,13 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.reconnect.get_label(), "重新连接")
                 self.assertEqual(window.connection_label.get_text(), "dev-server · ")
                 self.assertIn("退出码 7", window.connection_label.get_tooltip_text())
-                self.assertEqual(first.tab_label.get_text(), "[1] · 已结束")
+                self.assertEqual(first.tab_label.get_text(), "[1] sh · 已结束")
                 self.assertIn("REPLY=hello-terminal", output(first))
                 window.reconnect.clicked()
                 self.assertFalse(window.reconnect.get_visible())
                 pump_until(lambda: first.alive)
                 self.assertEqual(window.connection_label.get_text(), "dev-server · 在线")
-                self.assertEqual(first.tab_label.get_text(), "[1]")
+                self.assertEqual(first.tab_label.get_text(), "[1] sh")
                 self.assertEqual(window.header.get_title(), "dev-server")
                 self.assertEqual(window.get_title(), "dev-server")
                 window.confirm = lambda *args: False

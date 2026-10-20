@@ -9,16 +9,29 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - “复制服务器”按同一 IP/用户名/端口和已存密码新建副本（密码自动复制，无需重输），副本别名自动加“ 副本”后缀。
 - 每个服务器拥有独立会话标签，切换服务器保留连接；支持重连及关闭确认。
 - 左侧服务器支持拖拽排序，插入位置以指示线显示，顺序自动保存并在重启后保留；本地终端固定在顶部。
-- 加宽会话标签将序号与右侧关闭按钮放在同一个标签内；新建“+”紧随最后一个标签，支持拖动排序和横向滚动。
+- 会话标签显示 `[序号] 活动内容`；识别到 Codex 标题时额外显示 `[CODEX]`。每个标签固定宽度 240（原宽度的 1.5 倍），长标题末尾省略、悬停显示完整内容；关闭按钮在右侧，“+”紧随最后一个标签。
 - 标签编号始终按从左到右的位置更新，拖拽或关闭后连续排列；`Alt+1 … 9` 对应显示编号。
 - 窗口标题随当前服务器切换；统一底栏左侧显示服务器与当前会话状态，离线后可直接重连，中间显示 Codex 订阅额度。
 - 设置字体、字号、文字、背景及光标颜色，预览后保存并应用到所有会话。
+- 外观设置使用独立窗口，可单独移动和缩放；重复打开保留当前预览，关闭主窗口时自动清理。
+- SFTP 文件面板支持浏览、文件/目录上传下载、拖入上传、新建目录、重命名和删除文件/空目录；后台队列支持进度、取消、重试及同名处理。
 - 应用界面主题覆盖标题栏、侧栏、标签、底栏和菜单；可跟随终端配色、独立搭配 14 套明暗配色，或跟随系统外观，支持预览、取消恢复及保存。
 - Solarized、Gruvbox、PaperColor、Peaksea 的 Light / Dark 配色及 ANSI 16 色调色板。
+- Gruvbox、PaperColor、Peaksea 的普通/亮 ANSI 色采用本地 Vim 主题的主要语法高亮 RGB；具体着色位置仍由命令程序决定。
 - 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认（李子色），共 14 套主题。
 - 圆角羽毛应用图标和独立桌面启动入口；配置在重启后保留，不自动重连服务器。
 
-## v0.2.5 更新
+## v0.2.6 更新
+
+- 新增 SFTP 文件面板：浏览目录、上传/下载文件和目录、新建目录、重命名、删除文件或空目录。
+- 点击“上传”后双击单个本地文件即可上传，也支持多选和拖入上传；传输队列位于文件面板底部，不占终端高度。
+- 传输支持进度、取消、重试和同名处理；收起面板或切换服务器后继续传输。
+- 标签显示当前活动内容与 Codex 标记，固定宽度，长标题省略并可悬停查看。
+- Gruvbox、PaperColor、Peaksea 的 ANSI 用色对齐 Vim 主题主要语法色；外观设置窗口可独立移动和缩放。
+- 服务器栏底部依次提供添加、编辑、复制、移除；包含 PR #9 的服务器复制和 SSH 保活（默认 60 秒）功能。
+- deb 新增 `python3-paramiko` 依赖；原有服务器配置、外观设置和钥匙环凭据继续沿用。
+
+### v0.2.5 更新
 
 - 添加和编辑服务器使用独立窗口，可单独移动、缩放，主终端继续操作。
 - 左侧服务器支持拖拽排序，顺序自动保存，已有连接保持运行。
@@ -33,17 +46,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.5_all.deb`，进入下载目录后安装：
+`zterm_0.2.6_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.5_all.deb
+sudo apt install ./zterm_0.2.6_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.5_all.deb
+sudo dpkg -i ./zterm_0.2.6_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -58,7 +71,7 @@ sudo apt --fix-broken install
 
 ```sh
 sudo apt update
-sudo apt install git python3 python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91 gir1.2-secret-1 gnome-keyring librsvg2-common openssh-client
+sudo apt install git python3 python3-gi python3-paramiko gir1.2-gtk-3.0 gir1.2-vte-2.91 gir1.2-secret-1 gnome-keyring librsvg2-common openssh-client
 git clone https://github.com/zhou411X/zterm.git
 cd zterm
 /usr/bin/python3 app.py
@@ -74,7 +87,8 @@ sh install.sh
 
 用户级安装文件位于 `${XDG_DATA_HOME:-~/.local/share}/ssh-workbench/`，
 设置位于 `${XDG_CONFIG_HOME:-~/.config}/ssh-workbench/`。服务器别名和外观分别保存在
-`servers.json` 和 `appearance.json`。在左侧“添加服务器”按钮中指定 IPv4/IPv6 地址、用户名和端口，
+`servers.json` 和 `appearance.json`。左侧服务器栏底部依次排列“添加服务器”“编辑服务器”“复制服务器”“移除服务器”。
+点击“添加服务器”可指定 IPv4/IPv6 地址、用户名和端口，
 显示别名留空时使用 IP；这些连接字段优先于 `~/.ssh/config`。密钥和跳板等其他设置仍由 OpenSSH 管理。
 “添加服务器”使用独立窗口，可单独移动、缩放，填写期间主终端仍可操作；重复点击会唤回已有窗口。
 若 `.bashrc` 的静态 SSH 别名中只有一个登录用户名，表单自动预填该用户，可自行修改。
@@ -97,12 +111,12 @@ deb 包名从 `ssh-workbench` 改为 `zterm`，安装新版时替换旧包。
 ```sh
 sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py
+/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.5_all.deb
+sudo apt install ./dist/zterm_0.2.6_all.deb
 ```
 
-可通过 `sh build_deb.sh 0.2.6` 指定版本。安装包为 `Architecture: all`，
+可通过 `sh build_deb.sh 0.2.6` 显式指定版本。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
 文档放在 `/usr/share/doc/zterm/`，继续使用原有用户配置。
@@ -113,6 +127,36 @@ sudo apt install ./dist/zterm_0.2.5_all.deb
 用户级安装可删除对应的 `~/.local/bin/zterm` 和 `~/.local/bin/ssh-workbench`、上述应用数据目录，
 以及用户数据目录下的 `applications/local.ssh.Workbench.desktop` 和
 `icons/hicolor/scalable/apps/local.ssh.Workbench.svg`；保留配置目录即可保留设置。
+
+## 会话活动标题
+
+活动内容采用 shell 或程序上报的终端标题；没有标题时显示启动程序名（如 `bash`、`ssh`）。
+标签编号继续按位置更新，并对应 `Alt+1 … 9`；窗口标题仍显示服务器别名或 IP。
+活动标题识别到独立的 `Codex` 字样时显示 `[CODEX]`（不区分大小写，目录 `/codex` 和文件 `codex.py` 不算）。
+此标记依据标题，不扫描远端进程；程序没有上报标题或 shell 没有恢复标题时，活动信息可能缺失或过时。
+会话结束时移除标记并显示结束状态，重连清空旧活动标题。
+
+## SFTP 文件传输
+
+选择远程服务器后点击标题栏“文件”，右侧打开可调整宽度的文件面板；
+也可右键服务器 →“浏览文件（SFTP）”，只浏览文件而不新建终端。
+首次进入远端登录目录，可输入远端绝对路径、双击目录或点击“↑”导航。
+每个服务器在当前窗口内保留浏览目录；不自动跟随终端中的 `cd`。
+
+点击“上传”后，双击单个本地文件即可上传；也可多选后点击“上传”、选择整个目录，或把本地文件拖入文件面板。
+下载先选择远端条目，再选择本地目标目录。
+队列位于右侧“文件 · SFTP”面板底部，不占终端高度；串行执行，显示进度和平均速度，支持取消与重试。
+收起面板会同时隐藏队列，传输继续进行；切换服务器或关闭终端标签也不取消传输。
+同名文件在复制前等待选择“覆盖”“另存”“跳过”；目录覆盖会替换该任务内的同名普通文件。
+传输目标固定为创建任务时的服务器和路径，后续切换页面不会改变它。
+关闭应用会提示取消未完成任务；任务历史不跨重启保存。有未完成任务时需先处理再移除服务器。
+
+连接复用 OpenSSH 的 SSH 配置、密钥、agent、跳板机和 zTerm 钥匙环认证，通过独立 SFTP 子进程工作。
+未知主机需确认，主机密钥不匹配时拒绝连接。服务器必须启用 SFTP 子系统。
+每次目录读取/任务建立独立连接；无密钥、agent 或已保存密码时，可能重复提示登录。
+文件先写同目录 `.zterm-*.part`，成功后再完成替换；远端覆盖要求支持 OpenSSH `posix-rename` 扩展。
+取消或断网可能留下远端临时文件，任务悬停详情显示路径；重试会重新传输。
+首版不支持续传/目录同步、不跟随符号链接，仅删除文件或空目录，不递归删除非空目录。
 
 ## Codex 订阅额度
 
@@ -129,11 +173,13 @@ Codex 使用已登录 CLI 的官方 [account/rateLimits/read](https://learn.chat
 测试需要 `xvfb` 和 `xauth`，使用临时配置与本地模拟进程，不连接真实 SSH 服务器。
 
 ```sh
-sudo apt install xvfb xauth
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py test_workbench.py test_quota.py test_credentials.py
+sudo apt install xvfb xauth openssh-sftp-server
+/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py test_workbench.py test_quota.py test_credentials.py test_transfer.py test_file_browser.py
 /usr/bin/python3 test_credentials.py
 /usr/bin/python3 test_quota.py
+/usr/bin/python3 test_transfer.py
 GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_workbench.py
+GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_file_browser.py
 ```
 
 测试涵盖独立服务器表单、右键编辑、侧栏排序持久化、旧配置兼容、密码保留/替换/清除及失败回滚、
@@ -142,6 +188,8 @@ GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_workbench.py
 以及 14 套主题的实际 ANSI/前景/背景色块渲染、旧主题配置迁移、界面主题预览/保存/窗口隔离、标签布局/排序/溢出滚动、重排编号与 Alt 快捷键对应和统一底栏状态/重连。
 “在线”依据当前会话进程状态；真实 SSH 断网场景尚未验证。
 截图是测试生成物，不纳入版本控制。
+SFTP 测试使用临时目录和本机 SFTP 子系统；安装 openssh-server 后还会验证仅监听回环地址的
+临时 SSH 服务、公钥登录和主机密钥不匹配拒绝。测试不连接用户实际服务器。
 
 详细用法和快捷键见 [HELP.txt](HELP.txt)，主题来源与适配约定见
 [THEME_SOURCES.txt](THEME_SOURCES.txt)。终端配色只改变终端默认色及 ANSI 0–15，
