@@ -1,6 +1,7 @@
 """GTK file browser and transfer queue, independent of terminal PTYs."""
 
 from datetime import datetime
+import logging
 from pathlib import Path
 import posixpath
 import stat
@@ -11,6 +12,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from transfer import TransferManager, endpoint_for, entry_name
+
+LOG = logging.getLogger("zterm.files")
 
 
 def size_text(value):
@@ -37,11 +40,6 @@ class FilePanel(Gtk.Box):
         self.listing = None
         self.closed = False
         self.set_size_request(330, -1)
-        heading = Gtk.Box(spacing=6)
-        heading.pack_start(Gtk.Label(label="文件 · SFTP", xalign=0), True, True, 0)
-        heading.pack_end(action_button("收起", lambda: controller.owner.files_toggle.set_active(False)),
-                         False, False, 0)
-        self.pack_start(heading, False, False, 0)
         self.server_label = Gtk.Label(xalign=0)
         self.server_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.pack_start(self.server_label, False, False, 0)
@@ -123,6 +121,7 @@ class FilePanel(Gtk.Box):
             return
         self.generation += 1
         generation, endpoint = self.generation, self.endpoint
+        LOG.debug("Directory request generation=%s", generation)
         if self.listing is not None:
             self.listing.cancel()
         self.ready(False)
@@ -130,6 +129,7 @@ class FilePanel(Gtk.Box):
 
         def finished(job, result, error):
             if self.closed or generation != self.generation or endpoint != self.endpoint:
+                LOG.debug("Discarded stale directory response generation=%s", generation)
                 return
             self.listing = None
             if error:
@@ -162,23 +162,29 @@ class FilePanel(Gtk.Box):
         else:
             self.status.set_text("首版不跟随符号链接；请直接进入实际目录或选择普通文件。")
 
-    def choose(self, title, action, multiple=False):
-        dialog = Gtk.FileChooserDialog(title=title, action=action)
+    def choose(self, title, action, on_accept, multiple=False, selection=()):
+        # Keep response buttons in the action area even when GNOME enables
+        # gtk-dialogs-use-header; our independent titlebar must not replace them.
+        dialog = Gtk.FileChooserDialog(title=title, action=action, use_header_bar=False)
         accept = "上传" if action == Gtk.FileChooserAction.OPEN else "选择"
         dialog.add_buttons("取消", Gtk.ResponseType.CANCEL, accept, Gtk.ResponseType.OK)
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.set_select_multiple(multiple)
-        return self.controller.run_dialog(dialog, dialog.get_filenames) or []
+        endpoint, location = self.endpoint, self.location
+        return self.controller.present_dialog(
+            dialog, dialog.get_filenames, on_accept,
+            identity=(endpoint, location, tuple(selection)),
+            description=f"{endpoint.label} · {location}" if endpoint else "")
 
     def upload_files(self):
         endpoint, location = self.endpoint, self.location
-        paths = self.choose("选择上传的文件", Gtk.FileChooserAction.OPEN, True)
-        self.upload_paths(endpoint, location, paths)
+        return self.choose("选择上传的文件", Gtk.FileChooserAction.OPEN,
+                           lambda paths: self.upload_paths(endpoint, location, paths), True)
 
     def upload_directory(self):
         endpoint, location = self.endpoint, self.location
-        paths = self.choose("选择上传的目录", Gtk.FileChooserAction.SELECT_FOLDER)
-        self.upload_paths(endpoint, location, paths)
+        return self.choose("选择上传的目录", Gtk.FileChooserAction.SELECT_FOLDER,
+                           lambda paths: self.upload_paths(endpoint, location, paths))
 
     def upload_paths(self, endpoint, location, paths):
         if endpoint is None or not location:
@@ -193,17 +199,23 @@ class FilePanel(Gtk.Box):
         if endpoint is None or not selected:
             self.status.set_text("请先选择要下载的文件或目录。")
             return
-        paths = self.choose("选择下载到的本地目录", Gtk.FileChooserAction.SELECT_FOLDER)
-        if paths:
+        def accepted(paths):
+            if not paths:
+                return
             for name, _ in selected:
                 self.controller.submit(endpoint, "download", posixpath.join(location, name),
                                        str(Path(paths[0]) / name))
+        return self.choose("选择下载到的本地目录", Gtk.FileChooserAction.SELECT_FOLDER, accepted,
+                           selection=selected)
 
     def mkdir(self):
         endpoint, location = self.endpoint, self.location
-        name = self.controller.ask_name("新建远端目录", "")
-        if name and endpoint and location:
-            self.controller.submit(endpoint, "mkdir", posixpath.join(location, name))
+        def accepted(name):
+            if endpoint and location:
+                self.controller.submit(endpoint, "mkdir", posixpath.join(location, name))
+        return self.controller.ask_name(
+            "新建远端目录", "", accepted, identity=(endpoint, location),
+            description=f"{endpoint.label} · {location}" if endpoint else "")
 
     def rename(self):
         selected = self.selected()
@@ -212,10 +224,13 @@ class FilePanel(Gtk.Box):
             return
         endpoint, location = self.endpoint, self.location
         old = selected[0][0]
-        name = self.controller.ask_name("重命名（不会覆盖已有目标）", old)
-        if name and name != old:
-            self.controller.submit(endpoint, "rename", posixpath.join(location, old),
-                                   posixpath.join(location, name))
+        def accepted(name):
+            if name != old:
+                self.controller.submit(endpoint, "rename", posixpath.join(location, old),
+                                       posixpath.join(location, name))
+        return self.controller.ask_name(
+            "重命名（不会覆盖已有目标）", old, accepted, identity=(endpoint, location, old),
+            description=f"{endpoint.label} · {posixpath.join(location, old)}")
 
     def delete(self):
         endpoint, location, selected = self.endpoint, self.location, self.selected()
@@ -250,6 +265,10 @@ class FileTransfers:
 
     def __init__(self, owner, connection_factory=None):
         self.owner, self.closed = owner, False
+        self.dialogs = {}
+        self.sidebar_width = 335
+        self.pane_width = None
+        self.restoring_width = False
         options = {"connection_factory": connection_factory} if connection_factory else {}
         self.manager = TransferManager(self.changed, self.dispatch, **options)
         self.panel = FilePanel(self)
@@ -289,12 +308,12 @@ class FileTransfers:
             self.owner.files_toggle.set_active(True)
         finally:
             self.owner.files_toggle.handler_unblock_by_func(self.toggle)
-        self.panel.show()
+        self.set_visible(True)
         self.panel.set_server(endpoint_for(alias, self.owner.profiles.get(alias)))
         self.panel.refresh()
 
     def toggle(self, toggle):
-        self.panel.set_visible(toggle.get_active())
+        self.set_visible(toggle.get_active())
         if toggle.get_active():
             self.select_server(self.owner.current)
             if self.panel.location and self.panel.listing is None:
@@ -306,42 +325,117 @@ class FileTransfers:
                 self.panel.listing.cancel()
                 self.panel.listing = None
 
+    def bind_pane(self):
+        pane = self.owner.file_pane
+        self.pane_width = pane.get_allocated_width()
+        pane.connect("size-allocate", self.pane_resized)
+        pane.connect("notify::position", self.pane_position_changed)
+
+    def set_visible(self, visible):
+        pane = self.owner.file_pane
+        was_visible = self.panel.get_visible()
+        if not visible and was_visible and self.panel.get_allocated_width() > 0:
+            self.sidebar_width = pane.get_allocated_width() - pane.get_position()
+        self.panel.set_visible(visible)
+        self.owner.files_toggle.set_tooltip_text("收起文件栏（SFTP）" if visible else "展开文件栏（SFTP）")
+        if visible != was_visible:
+            GLib.idle_add(self.restore_width)
+
+    def pane_resized(self, pane, allocation):
+        resized = allocation.width != self.pane_width
+        self.pane_width = allocation.width
+        if resized:
+            self.restore_width()
+
+    def pane_position_changed(self, pane, _property):
+        if not self.panel.get_visible() and not self.restoring_width:
+            self.restore_width()
+        if (self.panel.get_visible() and not self.restoring_width and
+                pane.get_allocated_width() == self.pane_width):
+            self.sidebar_width = pane.get_allocated_width() - pane.get_position()
+
+    def restore_width(self):
+        if not self.closed:
+            pane = self.owner.file_pane
+            width = self.sidebar_width if self.panel.get_visible() else self.owner.file_dock.get_size_request()[0]
+            self.restoring_width = True
+            try:
+                pane.set_position(max(0, pane.get_allocated_width() - width))
+            finally:
+                self.restoring_width = False
+        return False
+
     def submit(self, endpoint, action, source, target=""):
         self.queue.show()
         self.queue.set_expanded(True)
         return self.manager.submit(endpoint, action, source, target)
 
-    def ask_name(self, title, initial):
-        dialog = Gtk.Dialog(title=title)
+    def ask_name(self, title, initial, on_accept, *, identity=None, description=""):
+        dialog = Gtk.Dialog(title=title, use_header_bar=False)
         dialog.add_buttons("取消", Gtk.ResponseType.CANCEL, "确定", Gtk.ResponseType.OK)
         entry = Gtk.Entry(text=initial, activates_default=True)
         entry.set_hexpand(True)
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.get_content_area().pack_start(entry, True, True, 10)
-        name = self.run_dialog(dialog, entry.get_text)
-        try:
-            if name is not None:
-                return entry_name(name)
-        except ValueError:
-            self.owner.info("名称无效", "请输入单个文件或目录名，不能包含 /，也不能为 . 或 ..。")
-        return None
+        def accepted(name):
+            try:
+                entry_name(name)
+            except ValueError:
+                self.owner.info("名称无效", "请输入单个文件或目录名，不能包含 /，也不能为 . 或 ..。")
+                return
+            on_accept(name)
+        return self.present_dialog(dialog, entry.get_text, accepted,
+                                   identity=identity, description=description)
 
-    def run_dialog(self, dialog, read_value):
-        # Like appearance/server settings, file dialogs have independent geometry.
+    def present_dialog(self, dialog, read_value, on_accept, *, identity=None, description=""):
+        # No nested Gtk.Dialog.run(): a separate window must never block input
+        # to the terminal, even if the chooser is behind it or minimized.
+        title = dialog.get_title()
+        key = (title, identity)
+        if self.closed:
+            dialog.destroy()
+            return None
+        if key in self.dialogs:
+            dialog.destroy()
+            self.dialogs[key].present()
+            return self.dialogs[key]
+        self.dialogs[key] = dialog
         dialog.set_application(self.owner.get_application())
+        dialog.set_modal(False)
         dialog.set_type_hint(Gdk.WindowTypeHint.NORMAL)
         dialog.set_icon(self.owner.get_icon())
         header = Gtk.HeaderBar(title=dialog.get_title(), show_close_button=True)
         header.set_decoration_layout(":minimize,maximize,close")
         dialog.set_titlebar(header)
+        if description:
+            context = Gtk.Label(label=description, xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+            context.set_max_width_chars(60)
+            context.set_tooltip_text(description)
+            if isinstance(dialog, Gtk.FileChooserDialog):
+                dialog.set_extra_widget(context)
+            else:
+                dialog.get_content_area().pack_start(context, False, False, 6)
         self.owner.interface_style.attach(dialog)
-        handler = self.owner.connect("destroy", lambda *_: dialog.response(Gtk.ResponseType.CANCEL))
+
+        def responded(_, response):
+            LOG.info("File dialog response dialog=%s title=%s response=%s", id(dialog), title, response)
+            try:
+                value = read_value() if response == Gtk.ResponseType.OK else None
+            finally:
+                dialog.destroy()
+            if response == Gtk.ResponseType.OK and not self.closed:
+                on_accept(value)
+
+        def destroyed(*_):
+            self.dialogs.pop(key, None)
+            LOG.info("File dialog closed dialog=%s title=%s", id(dialog), title)
+
+        dialog.connect("response", responded)
+        dialog.connect("destroy", destroyed)
         dialog.show_all()
-        try:
-            return read_value() if dialog.run() == Gtk.ResponseType.OK else None
-        finally:
-            self.owner.disconnect(handler)
-            dialog.destroy()
+        dialog.present()
+        LOG.info("File dialog opened dialog=%s title=%s modal=%s", id(dialog), title, dialog.get_modal())
+        return dialog
 
     def changed(self, update):
         if self.closed:
@@ -413,9 +507,10 @@ class FileTransfers:
         self.manager.notify(job)
 
     def save_as(self, job):
-        name = self.ask_name("另存为", posixpath.basename(job.target))
-        if name:
-            self.retry(job, target=posixpath.join(posixpath.dirname(job.target), name))
+        return self.ask_name(
+            "另存为", posixpath.basename(job.target),
+            lambda name: self.retry(job, target=posixpath.join(posixpath.dirname(job.target), name)),
+            identity=job.id, description=f"{job.endpoint.label} · {job.target}")
 
     def skip(self, job):
         job.state = "skipped"
@@ -425,5 +520,7 @@ class FileTransfers:
         if self.closed:
             return
         self.closed = True
+        for dialog in list(self.dialogs.values()):
+            dialog.destroy()
         self.panel.close()
         self.manager.close()

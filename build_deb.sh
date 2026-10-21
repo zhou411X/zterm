@@ -3,7 +3,7 @@
 set -eu
 umask 022
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-version=${1:-0.2.6}
+version=${1:-0.2.7}
 dpkg --validate-version "$version"
 case "$version" in
     *[!0-9A-Za-z.+:~\-]*) echo 'Invalid package version' >&2; exit 1 ;;
@@ -16,8 +16,13 @@ doc_dir="$stage/usr/share/doc/zterm"
 install -d "$stage/DEBIAN" "$stage/usr/bin" "$app_dir" "$doc_dir" \
     "$stage/usr/share/applications" "$stage/usr/share/icons/hicolor/scalable/apps"
 install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/quota.py" \
-    "$source_dir/file_browser.py" "$source_dir/transfer.py" "$source_dir/workbench.svg" "$app_dir/"
+    "$source_dir/file_browser.py" "$source_dir/transfer.py" "$source_dir/diagnostics.py" "$source_dir/background.py" \
+    "$source_dir/workbench.svg" "$app_dir/"
 install -m 755 "$source_dir/credentials.py" "$app_dir/"
+install -d "$app_dir/backgrounds"
+install -m 644 "$source_dir/backgrounds/zterm-mist-light.png" \
+    "$source_dir/backgrounds/zterm-mist-dark.png" "$source_dir/backgrounds/generation-prompts.json" \
+    "$app_dir/backgrounds/"
 install -m 644 "$source_dir/README.md" "$source_dir/HELP.txt" "$source_dir/THEME_SOURCES.txt" \
     "$source_dir/LICENSE" "$source_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/"
 cat "$source_dir/THIRD_PARTY_NOTICES.txt" "$source_dir/LICENSE" > "$doc_dir/copyright"
@@ -52,13 +57,13 @@ Provides: ssh-workbench (= $version)
 Conflicts: ssh-workbench
 Replaces: ssh-workbench
 Maintainer: zhouyawei <185499624@qq.com>
-Depends: python3 (>= 3.9), python3-gi, python3-paramiko, gir1.2-gtk-3.0, gir1.2-vte-2.91, gir1.2-secret-1, librsvg2-common, openssh-client
+Depends: python3 (>= 3.9), python3-gi, python3-gi-cairo, python3-cairo, python3-pil, python3-paramiko, gir1.2-gtk-3.0, gir1.2-vte-2.91, gir1.2-secret-1, librsvg2-common, openssh-client
 Recommends: gnome-keyring
 Homepage: https://github.com/zhou411X/zterm
 Description: zTerm terminal with grouped SSH sessions
  Independent local and SSH terminal with a collapsible server sidebar,
- per-server session tabs, SFTP file transfers, configurable fonts and
- fourteen named color themes.
+ per-server session tabs, SFTP file transfers, diagnostic logs,
+ configurable fonts, fourteen named color themes and image backgrounds.
 CONTROL
 # dpkg records root ownership; the staging directory remains user-owned.
 install -d "$source_dir/dist"

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import errno
+import logging
 import os
 from pathlib import Path
 import posixpath
@@ -17,6 +18,8 @@ import uuid
 
 import credentials
 from model import server_ssh_command, ssh_command
+
+LOG = logging.getLogger("zterm.transfer")
 
 
 @dataclass(frozen=True)
@@ -81,12 +84,14 @@ class SFTPConnection:
                     self.endpoint.argv, stdin=peer, stdout=peer, stderr=self.errors,
                     env=dict(os.environ, **dict(self.endpoint.environment)),
                     start_new_session=True)
+                LOG.debug("SFTP subprocess started pid=%s", self.process.pid)
             finally:
                 peer.close()
             if self.cancelled.is_set():
                 raise Cancelled()
             self.client = paramiko.SFTPClient(self.sock)
             self.sock.settimeout(30)
+            LOG.debug("SFTP subsystem connected pid=%s", self.process.pid)
             return self.client
         except Exception as error:
             self.close()
@@ -95,6 +100,7 @@ class SFTPConnection:
             raise RuntimeError(self.diagnostic or str(error) or "SFTP 连接失败") from error
 
     def abort(self):
+        LOG.debug("SFTP connection abort requested")
         self.cancelled.set()
         if self.process is not None and self.process.poll() is None:
             try:
@@ -124,6 +130,8 @@ class SFTPConnection:
                 except ProcessLookupError:
                     pass
                 self.process.wait()
+            LOG.debug("SFTP subprocess closed pid=%s returncode=%s",
+                      self.process.pid, self.process.returncode)
         self.diagnostic = ""
         if self.errors is not None:
             self.errors.seek(0)
@@ -174,6 +182,7 @@ class Job:
             raise Cancelled()
 
     def cancel(self):
+        LOG.info("Task cancellation requested id=%s action=%s", self.id, self.action)
         self.cancelled.set()
         if self.connection is not None:
             self.connection.abort()
@@ -209,6 +218,7 @@ class TransferManager:
             raise RuntimeError("文件传输已关闭")
         job = Job(endpoint, action, source, target, overwrite)
         self.jobs.append(job)
+        LOG.info("Task queued id=%s action=%s overwrite=%s", job.id, action, overwrite)
         self.notify(job)
         self.pending.put(job)
         return job
@@ -232,6 +242,7 @@ class TransferManager:
 
     def browse(self, endpoint, path, callback):
         job = Job(endpoint, "list", path, "")
+        LOG.debug("Directory read started id=%s", job.id)
         self.browsers.append(job)
 
         def run():
@@ -250,9 +261,14 @@ class TransferManager:
                     result = location, rows
             except Exception as failure:
                 error = str(failure) or "目录读取已取消"
+                report = LOG.debug if job.cancelled.is_set() else LOG.warning
+                report("Directory read stopped id=%s exception=%s",
+                       job.id, type(failure).__name__)
             finally:
                 job.state = "cancelled" if job.cancelled.is_set() else "done"
                 self.browsers.remove(job)
+                LOG.debug("Directory read ended id=%s state=%s entries=%s",
+                          job.id, job.state, len(result[1]) if result else 0)
                 self.dispatch(callback, job, result, error)
         threading.Thread(target=run, daemon=True).start()
         return job
@@ -265,6 +281,7 @@ class TransferManager:
             try:
                 job.check()
                 job.state = "connecting"
+                LOG.info("Task connecting id=%s action=%s", job.id, job.action)
                 self.notify(job)
                 job.connection = self.connection_factory(job.endpoint, job.cancelled)
                 with job.connection as client:
@@ -292,7 +309,10 @@ class TransferManager:
             except Exception as error:
                 job.state = "cancelled" if job.cancelled.is_set() or isinstance(error, Cancelled) else "failed"
                 job.error = str(error) or ("已取消" if job.state == "cancelled" else "SFTP 操作失败")
+                LOG.warning("Task stopped id=%s exception=%s", job.id, type(error).__name__)
             finally:
+                LOG.info("Task result id=%s action=%s state=%s bytes=%s total=%s",
+                         job.id, job.action, job.state, job.done, job.total)
                 job.connection = None
                 self.notify(job)
 

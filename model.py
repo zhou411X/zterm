@@ -180,8 +180,9 @@ LEGACY_THEME_MIGRATIONS = {
 
 # RGB sources and ANSI adaptation details are recorded in THEME_SOURCES.txt.
 # Solarized follows the local Vim variant, including its experimental green.
-# Gruvbox/PaperColor/Peaksea use syntax highlight accents in ANSI 1–6 and
-# repeat them in 9–14, so normal and bright output share the Vim colors.
+# Gruvbox/Peaksea use syntax highlight accents in ANSI 1–6 and 9–14.
+# PaperColor additionally adapts the default Vim slots seen in the user's
+# screenshots; a terminal palette cannot distinguish syntax groups sharing a slot.
 THEMES = {
     **{key: {"name": name, "foreground": fg, "background": bg, "cursor": fg,
              "palette": GNOME_PALETTE.copy()}
@@ -215,13 +216,16 @@ THEMES = {
     },
     "papercolor-light": {
         "name": "PaperColor Light", "foreground": "#444444", "background": "#eeeeee", "cursor": "#005f87",
-        "palette": ["#eeeeee", "#af0000", "#5f8700", "#d75f00", "#005faf", "#8700af", "#005f87", "#444444",
-                    "#878787", "#af0000", "#5f8700", "#d75f00", "#005faf", "#8700af", "#005f87", "#444444"],
+        "palette": ["#eeeeee", "#af0000", "#d70087", "#d70087", "#878787", "#8700af", "#005f87", "#444444",
+                    "#878787", "#af0000", "#d70087", "#d70087", "#878787", "#8700af", "#005f87", "#444444"],
+        "indexed_colors": {81: "#005faf", 121: "#d70087"},
+        "accent": "#005faf",
     },
     "papercolor-dark": {
         "name": "PaperColor Dark", "foreground": "#d0d0d0", "background": "#1c1c1c", "cursor": "#c6c6c6",
-        "palette": ["#1c1c1c", "#af005f", "#d7af5f", "#ff5faf", "#00afaf", "#af87d7", "#d7875f", "#d0d0d0",
-                    "#808080", "#af005f", "#d7af5f", "#ff5faf", "#00afaf", "#af87d7", "#d7875f", "#d0d0d0"],
+        "palette": ["#1c1c1c", "#af005f", "#d7af5f", "#afd700", "#00afaf", "#af87d7", "#808080", "#d0d0d0",
+                    "#808080", "#af005f", "#d7af5f", "#afd700", "#00afaf", "#af87d7", "#808080", "#d0d0d0"],
+        "indexed_colors": {81: "#00afaf", 121: "#afd700"},
     },
     "peaksea-light": {
         "name": "Peaksea Light", "foreground": "#000000", "background": "#e0e0e0", "cursor": "#008000",
@@ -245,6 +249,19 @@ def blend_colors(background, foreground, amount):
                          for bg, fg in zip(bytes.fromhex(background[1:]), bytes.fromhex(foreground[1:])))
 
 
+def terminal_palette(name):
+    # Always provide all 256 entries so switching away from PaperColor restores
+    # the standard xterm cube and gray ramp, including indices 81 and 121.
+    theme = THEMES[name]
+    levels = (0, 95, 135, 175, 215, 255)
+    palette = theme["palette"] + [f"#{red:02x}{green:02x}{blue:02x}"
+                                  for red in levels for green in levels for blue in levels]
+    palette += [f"#{value:02x}{value:02x}{value:02x}" for value in range(8, 239, 10)]
+    for index, color in theme.get("indexed_colors", {}).items():
+        palette[index] = color
+    return palette
+
+
 def interface_colors(settings):
     name = settings.get("interface_theme", "follow-terminal")
     if name == "system":
@@ -255,7 +272,8 @@ def interface_colors(settings):
     background = theme["background"]
     foreground = "#d0d0d0" if name == "gnome-green-on-black" else theme["foreground"]
     accent = ("#e95420" if name == "ubuntu-default" else
-              "#00af00" if name == "gnome-green-on-black" else theme["palette"][4])
+              "#00af00" if name == "gnome-green-on-black" else
+              theme.get("accent", theme["palette"][4]))
     return {"background": background, "foreground": foreground, "accent": accent,
             "surface": blend_colors(background, foreground, 0.06),
             "hover": blend_colors(background, foreground, 0.12),
@@ -263,8 +281,14 @@ def interface_colors(settings):
             "selection": blend_colors(background, accent, 0.25)}
 
 
+BACKGROUND_DEFAULTS = {"background_opacity": 1.0, "background_image": "",
+                       "background_image_opacity": 0.25, "background_blur": 0,
+                       "background_on_terminal": False}
+
+
 def default_appearance():
     return {"font": "Monospace 11", "theme": "ubuntu-default", "interface_theme": "follow-terminal",
+            **BACKGROUND_DEFAULTS,
             **{key: THEMES["ubuntu-default"][key] for key in ("foreground", "background", "cursor")}}
 
 
@@ -284,13 +308,24 @@ class AppearanceStore:
                        or not re.fullmatch(r"#[0-9a-fA-F]{6}", data[key])
                        for key in ("foreground", "background", "cursor"))):
             raise ValueError("外观配置格式错误；请检查 " + str(self.path))
+        effects = {key: data.get(key, default) for key, default in BACKGROUND_DEFAULTS.items()}
+        for key, low, high in (("background_opacity", 0.15, 1),
+                               ("background_image_opacity", 0, 1), ("background_blur", 0, 40)):
+            value = effects[key]
+            if type(value) not in (int, float) or not low <= value <= high:
+                raise ValueError("无效的背景设置：" + key)
+        if (not isinstance(effects["background_image"], str)
+                or "\0" in effects["background_image"]
+                or (effects["background_image"] and not Path(effects["background_image"]).is_absolute())
+                or type(effects["background_on_terminal"]) is not bool):
+            raise ValueError("无效的背景图片设置")
         if data["theme"] in LEGACY_THEME_MIGRATIONS:
             theme, previous_colors = LEGACY_THEME_MIGRATIONS[data["theme"]]
             data = dict(data, theme=theme)
             for key, previous in zip(("foreground", "background", "cursor"), previous_colors):
                 if data[key].lower() == previous:
                     data[key] = THEMES[theme][key]
-        return dict(data, interface_theme=data.get("interface_theme", "follow-terminal"))
+        return dict(data, **effects, interface_theme=data.get("interface_theme", "follow-terminal"))
 
     def load(self):
         if not self.path.exists():

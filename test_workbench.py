@@ -8,6 +8,7 @@ import time
 import unittest
 
 from model import (AliasStore, AppearanceStore, THEMES, default_appearance, interface_colors,
+                   BACKGROUND_DEFAULTS,
                    SSH_KEEPALIVE, bash_ssh_aliases, ssh_command, server_ssh_command,
                    validate_server, valid_alias)
 
@@ -108,7 +109,8 @@ class ModelTests(unittest.TestCase):
                 custom = dict(settings, foreground="#123456", background="#654321", cursor="#ABCDEF")
                 store.save(custom)
                 self.assertEqual(custom["theme"], old, "Saving must not mutate the caller's settings")
-                self.assertEqual(store.load(), dict(custom, theme=new, interface_theme="follow-terminal"))
+                self.assertEqual(store.load(), dict(custom, **BACKGROUND_DEFAULTS,
+                                                   theme=new, interface_theme="follow-terminal"))
 
     def test_appearance_roundtrip_is_independent_of_servers(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -728,6 +730,7 @@ class TerminalTests(unittest.TestCase):
                 window.server_list.select_row(window.rows[""])
                 session = window.groups[""].get_nth_page(0)
                 pump_until(lambda: session.alive and window.get_mapped())
+                self.assertEqual(window.get_property("window-position"), Gtk.WindowPosition.CENTER)
                 pid = session.pid
                 original = window.appearance.copy()
                 item = next(item for item in window.settings_menu.get_children()
@@ -736,6 +739,7 @@ class TerminalTests(unittest.TestCase):
                 dialog = next(widget for widget in Gtk.Window.list_toplevels()
                               if isinstance(widget, AppearanceDialog) and widget.owner is window)
                 self.assertFalse(dialog.get_modal())
+                self.assertEqual(dialog.get_property("window-position"), Gtk.WindowPosition.CENTER)
                 self.assertIsNone(dialog.get_transient_for())
                 self.assertEqual(dialog.get_type_hint(), Gdk.WindowTypeHint.NORMAL)
                 self.assertFalse(dialog.get_skip_taskbar_hint())
@@ -1318,6 +1322,57 @@ class TerminalTests(unittest.TestCase):
                 while context.pending():
                     context.iteration(False)
 
+    def test_papercolor_screenshot_slots_and_indexed_colors_render_and_reset(self):
+        from app import AppearanceDialog, Gdk, Gtk, Window
+
+        # Screenshot: Comment uses ANSI cyan, return uses ANSI yellow,
+        # auto uses indexed 121 and vimOption uses indexed 81.
+        cases = {
+            "papercolor-dark": ["#808080", "#afd700", "#00afaf", "#afd700"],
+            "papercolor-light": ["#878787", "#d70087", "#005faf", "#d70087"],
+            "ubuntu-default": ["#12488b", "#a2734c", "#5fd7ff", "#87ffaf"],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(enable_quota=False, store=AliasStore(Path(directory) / "servers.json"))
+            dialog = AppearanceDialog(window)
+            try:
+                for theme, expected in cases.items():
+                    with self.subTest(theme=theme):
+                        dialog.theme.set_active_id(theme)
+                        terminal = dialog.preview
+                        terminal.reset(True, True)
+                        comment = 6 if theme == "papercolor-dark" else 4
+                        indices = [comment, 3, 81, 121, 173, 205]
+                        codes = "\x1b[2J\x1b[H\x1b[?25l" + "".join(
+                            f"\x1b[48;5;{index}m  " for index in indices)
+                        # Keep native PaperColor orange/pink and explicit truecolor unchanged.
+                        codes += "\x1b[48;2;135;255;175m  \x1b[0m"
+                        terminal.feed(codes.encode())
+                        colors = expected + ["#d7875f", "#ff5faf", "#87ffaf"]
+                        rgb = [tuple(bytes.fromhex(value[1:])) for value in colors]
+                        actual = []
+
+                        def rendered():
+                            if not terminal.get_realized():
+                                return False
+                            x, y = terminal.translate_coordinates(dialog, 0, 0)
+                            image = Gdk.pixbuf_get_from_window(
+                                dialog.get_window(), x, y, terminal.get_allocated_width(),
+                                terminal.get_allocated_height())
+                            data = image.get_pixels()
+                            actual.clear()
+                            for i in range(len(rgb)):
+                                x = (2 * i + 1) * terminal.get_char_width()
+                                y = terminal.get_char_height() // 2
+                                offset = y * image.get_rowstride() + x * image.get_n_channels()
+                                actual.append(tuple(data[offset:offset + 3]))
+                            return actual == rgb
+                        pump_until(rendered)
+                        self.assertEqual(actual, rgb)
+            finally:
+                dialog.destroy()
+                window.destroy()
+
     def test_appearance_preview_save_cancel_and_restart(self):
         from unittest.mock import patch
         from app import AppearanceDialog, Window, rgba
@@ -1508,7 +1563,7 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.groups, {}, "Startup must not connect automatically")
                 menu_items = window.settings_menu.get_children()
                 self.assertEqual([item.get_label() for item in menu_items],
-                                 ["快捷键", "外观设置", "订阅额度"])
+                                 ["快捷键", "外观设置", "订阅额度", "诊断日志"])
                 for item, method in zip(menu_items[:1], ("show_shortcuts",)):
                     with patch.object(window, method) as action:
                         item.activate()

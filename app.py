@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """zTerm — a GTK/VTE terminal with per-server session tabs."""
 
+import logging
 import os
 from pathlib import Path
 import pwd
@@ -15,14 +16,22 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Vte", "2.91")
+# Keep GTK's native display backend: forcing XWayland for window placement
+# makes text blurry when the compositor scales a low-resolution X11 surface.
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Vte
 
 from model import (AliasStore, AppearanceStore, THEMES, INTERFACE_THEMES,
                    bash_ssh_aliases, default_appearance, interface_colors, ssh_command,
-                   server_ssh_command, validate_server, legacy_server_profile)
+                   server_ssh_command, validate_server, legacy_server_profile, terminal_palette)
+from model import BACKGROUND_DEFAULTS
+from background import BackgroundBox, BackgroundRenderer, enabled as background_enabled
 import credentials
+import diagnostics
 from file_browser import FileTransfers
 from quota import fetch as fetch_quota, display as display_quota
+
+LOG = logging.getLogger("zterm.app")
+SIDEBAR_RAIL_WIDTH = 56
 
 
 def button(label, callback, tooltip=None):
@@ -41,8 +50,12 @@ def rgba(value):
 
 def apply_appearance(terminal, settings):
     terminal.set_font(Pango.FontDescription(settings["font"]))
-    palette = THEMES[settings["theme"]]["palette"]
-    terminal.set_colors(rgba(settings["foreground"]), rgba(settings["background"]),
+    palette = terminal_palette(settings["theme"])
+    background = rgba(settings["background"])
+    if background_enabled(settings):
+        background.alpha = 0
+    terminal.set_clear_background(not background_enabled(settings))
+    terminal.set_colors(rgba(settings["foreground"]), background,
                         [rgba(value) for value in palette])
     terminal.set_color_cursor(rgba(settings["cursor"]))
     terminal.set_color_cursor_foreground(rgba(settings["background"]))
@@ -52,6 +65,7 @@ class InterfaceStyle:
     """Window-scoped GTK colors shared with that window's menus and dialogs."""
 
     def __init__(self, window):
+        self.window = window
         self.css_class = f"zterm-ui-{id(self)}"
         self.provider = Gtk.CssProvider()
         self.screen = window.get_screen()
@@ -68,7 +82,12 @@ class InterfaceStyle:
 
     def apply(self, settings):
         colors = interface_colors(settings)
-        if colors is None:
+        effects = background_enabled(settings)
+        if effects:
+            self.window.get_style_context().add_class("zterm-backdrop")
+        else:
+            self.window.get_style_context().remove_class("zterm-backdrop")
+        if colors is None and not effects:
             self.provider.load_from_data(b"")
             return
         css = """
@@ -82,6 +101,12 @@ class InterfaceStyle:
             @scope list, @scope viewport, @scope notebook, @scope stack {
                 background-color: @background; color: @foreground;
             }
+            @scope notebook { border-color: @border; }
+            @scope notebook > header {
+                background: @surface; color: @foreground; border-color: @border;
+            }
+            @scope notebook > header tab { color: @foreground; }
+            @scope notebook > header tab:checked { background: @selection; }
             @scope treeview.view {
                 background-color: @background; color: @foreground;
             }
@@ -119,15 +144,36 @@ class InterfaceStyle:
             }
             @scope .session-tab-close:hover { background: @hover; }
         """
-        for key, color in colors.items():
+        if colors is None:
+            css = ""
+        for key, color in (colors or {}).items():
             css = css.replace("@" + key, color)
+        if effects:
+            surface = colors["surface"] if colors else "@theme_bg_color"
+            selection = colors["selection"] if colors else "@theme_selected_bg_color"
+            opacity = settings.get("background_opacity", 1)
+            css += """
+                window@scope.zterm-backdrop { background: transparent; }
+                @scope.zterm-backdrop list, @scope.zterm-backdrop viewport,
+                @scope.zterm-backdrop notebook, @scope.zterm-backdrop stack,
+                @scope.zterm-backdrop treeview.view,
+                @scope.zterm-backdrop .workspace-sidebar,
+                @scope.zterm-backdrop .workspace-status,
+                @scope.zterm-backdrop .workspace-tabs { background: transparent; }
+                @scope.zterm-backdrop headerbar { background: alpha(SURFACE, OPACITY); }
+                @scope.zterm-backdrop .session-tab { background: alpha(SURFACE, 0.35); }
+                @scope.zterm-backdrop treeview.view:selected,
+                @scope.zterm-backdrop row:selected,
+                @scope.zterm-backdrop .session-tab.active { background: alpha(SELECTION, 0.85); }
+            """.replace("SURFACE", surface).replace("OPACITY", str(opacity)).replace("SELECTION", selection)
         self.provider.load_from_data(css.replace("@scope", "." + self.css_class).encode())
 
 
 class AppearanceDialog(Gtk.Dialog):
     def __init__(self, window):
-        super().__init__(title="外观设置", modal=False)
+        super().__init__(title="外观设置", modal=False, use_header_bar=False)
         self.owner = window
+        window.appearance_dialog = self
         self.set_application(window.get_application())
         self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
         self.set_skip_taskbar_hint(False)
@@ -139,7 +185,8 @@ class AppearanceDialog(Gtk.Dialog):
         window.interface_style.attach(self)
         self.connect("destroy", self.on_destroy)
         self.loading = True
-        self.set_default_size(600, 540)
+        self.set_default_size(660, 740)
+        self.set_position(Gtk.WindowPosition.CENTER)
         self.add_buttons("恢复默认", Gtk.ResponseType.REJECT,
                          "取消", Gtk.ResponseType.CANCEL, "保存并应用", Gtk.ResponseType.OK)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -170,9 +217,48 @@ class AppearanceDialog(Gtk.Dialog):
             grid.attach(Gtk.Label(label=label, xalign=0), 0, row, 1, 1)
             grid.attach(control, 1, row, 1, 1)
             control.connect("color-set", self.update_preview)
-        content.pack_start(grid, False, False, 0)
+        self.background_image = ""
+        background_grid = Gtk.Grid(column_spacing=16, row_spacing=12, margin=12)
+        self.image_button = button("选择图片…", self.choose_background)
+        self.image_button.set_hexpand(True)
+        self.image_button.get_child().set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.image_button.get_child().set_max_width_chars(30)
+        image_row = Gtk.Box(spacing=6)
+        image_row.pack_start(self.image_button, True, True, 0)
+        image_row.pack_end(button("清除", lambda *_: self.set_background_image("")), False, False, 0)
+        background_grid.attach(Gtk.Label(label="背景图片", xalign=0), 0, 0, 1, 1)
+        background_grid.attach(image_row, 1, 0, 1, 1)
+        self.effects = {}
+        for row, (key, label, minimum, maximum) in enumerate((
+                ("background_opacity", "背景不透明度（%）", 15, 100),
+                ("background_image_opacity", "图片强度（%）", 0, 100),
+                ("background_blur", "图片毛玻璃（0 为关闭）", 0, 40)), 1):
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, minimum, maximum, 1)
+            scale.set_digits(0)
+            scale.set_hexpand(True)
+            scale.set_size_request(260, -1)
+            self.effects[key] = scale
+            background_grid.attach(Gtk.Label(label=label, xalign=0), 0, row, 1, 1)
+            background_grid.attach(scale, 1, row, 1, 1)
+            scale.connect("value-changed", self.update_preview)
+        self.background_on_terminal = Gtk.CheckButton(label="背景图片同时应用到终端")
+        self.background_on_terminal.connect("toggled", self.update_preview)
+        background_grid.attach(self.background_on_terminal, 1, 4, 1, 1)
+        self.settings_notebook = Gtk.Notebook()
+        grid.set_margin_start(12)
+        grid.set_margin_end(12)
+        grid.set_margin_top(12)
+        grid.set_margin_bottom(12)
+        self.settings_notebook.append_page(grid, Gtk.Label(label="字体与配色"))
+        self.settings_notebook.append_page(background_grid, Gtk.Label(label="背景效果"))
+        settings_scroll = Gtk.ScrolledWindow()
+        settings_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        settings_scroll.set_min_content_height(350)
+        settings_scroll.add(self.settings_notebook)
+        content.pack_start(settings_scroll, True, True, 0)
         content.pack_start(Gtk.Label(label="界面主题控制标题栏、侧栏、标签和底栏，可跟随终端或独立选择。\n"
-                                          "切换时预览界面；取消恢复原样，保存后应用到所有会话。",
+                                          "图片毛玻璃模糊背景图片，文字保持清晰；不会模糊桌面后方的窗口。\n"
+                                          "100% 为不透明；取消恢复原样，保存后应用到所有会话。",
                                     xalign=0, wrap=True), False, False, 0)
         self.preview = Vte.Terminal()
         self.preview.set_size(52, 5)
@@ -183,7 +269,9 @@ class AppearanceDialog(Gtk.Dialog):
                           "\x1b[32muser@workbench\x1b[0m:~$ ls\r\n"
                           "\x1b[34mworkspace/\x1b[0m  \x1b[33mnotes.txt\x1b[0m  "
                           "\x1b[31merror\x1b[0m\r\n$ ".encode())
-        content.pack_start(self.preview, True, True, 0)
+        self.preview_background = BackgroundBox(window.background_renderer, window.appearance, terminal=True)
+        self.preview_background.pack_start(self.preview, True, True, 0)
+        content.pack_start(self.preview_background, False, False, 0)
         self.error = Gtk.Label(xalign=0, wrap=True)
         content.pack_start(self.error, False, False, 0)
         self.theme.connect("changed", self.theme_changed)
@@ -197,7 +285,9 @@ class AppearanceDialog(Gtk.Dialog):
         if self.owner.appearance_dialog is self:
             self.owner.appearance_dialog = None
         self.owner.disconnect(self.owner_destroy_handler)
-        self.owner.interface_style.apply(self.owner.appearance)
+        if getattr(self, "image_dialog", None):
+            self.image_dialog.destroy()
+        self.owner.preview_background(self.owner.appearance)
 
     def set_values(self, settings):
         self.loading = True
@@ -206,6 +296,12 @@ class AppearanceDialog(Gtk.Dialog):
         self.theme.set_active_id(settings["theme"])
         for key, control in self.colors.items():
             control.set_rgba(rgba(settings[key]))
+        self.background_image = settings.get("background_image", "")
+        self.image_button.set_label(Path(self.background_image).name if self.background_image else "选择图片…")
+        self.image_button.set_tooltip_text(self.background_image or "选择 PNG、JPEG 或 WebP 图片")
+        for key, scale in self.effects.items():
+            scale.set_value(settings.get(key, BACKGROUND_DEFAULTS[key]) * (1 if key == "background_blur" else 100))
+        self.background_on_terminal.set_active(settings.get("background_on_terminal", False))
         self.loading = False
         self.update_preview()
 
@@ -216,7 +312,43 @@ class AppearanceDialog(Gtk.Dialog):
             color = control.get_rgba()
             settings[key] = "#{:02x}{:02x}{:02x}".format(
                 *[round(channel * 255) for channel in (color.red, color.green, color.blue)])
+        settings.update(background_image=self.background_image,
+                        background_on_terminal=self.background_on_terminal.get_active())
+        for key, scale in self.effects.items():
+            settings[key] = scale.get_value() / (1 if key == "background_blur" else 100)
         return settings
+
+    def choose_background(self, *_):
+        if getattr(self, "image_dialog", None):
+            self.image_dialog.present()
+            return
+        dialog = Gtk.FileChooserDialog(title="选择背景图片", action=Gtk.FileChooserAction.OPEN,
+                                       use_header_bar=False)
+        dialog.set_application(self.owner.get_application())
+        dialog.add_buttons("取消", Gtk.ResponseType.CANCEL, "选择", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("图片（PNG / JPEG / WebP）")
+        for mime in ("image/png", "image/jpeg", "image/webp"):
+            file_filter.add_mime_type(mime)
+        dialog.add_filter(file_filter)
+        if self.background_image:
+            dialog.set_filename(self.background_image)
+        self.image_dialog = dialog
+        def response(chooser, answer):
+            path = chooser.get_filename() if answer == Gtk.ResponseType.OK else None
+            chooser.destroy()
+            if path:
+                self.set_background_image(path)
+        dialog.connect("response", response)
+        dialog.connect("destroy", lambda *_: setattr(self, "image_dialog", None))
+        dialog.show_all()
+
+    def set_background_image(self, path):
+        self.background_image = path
+        self.image_button.set_label(Path(path).name if path else "选择图片…")
+        self.image_button.set_tooltip_text(path or "选择 PNG、JPEG 或 WebP 图片")
+        self.update_preview()
 
     def theme_changed(self, *_):
         theme = THEMES[self.theme.get_active_id()]
@@ -227,13 +359,24 @@ class AppearanceDialog(Gtk.Dialog):
     def update_preview(self, *_):
         if self.loading:
             return
-        apply_appearance(self.preview, self.values())
-        self.owner.interface_style.apply(self.values())
+        settings = self.values()
+        apply_appearance(self.preview, settings)
+        self.preview_background.update(settings)
+        self.owner.preview_background(settings)
+        self.background_status()
+
+    def background_status(self):
+        renderer = self.owner.background_renderer
+        self.error.set_text("正在处理背景图片…" if renderer.loading else renderer.error)
+        self.set_response_sensitive(Gtk.ResponseType.OK, not renderer.loading and not renderer.error)
 
     def respond(self, _, response):
         if response == Gtk.ResponseType.REJECT:
             self.set_values(default_appearance())
         elif response == Gtk.ResponseType.OK:
+            if self.owner.background_renderer.loading or self.owner.background_renderer.error:
+                self.background_status()
+                return
             if self.owner.appearance_error:
                 self.error.set_text("请先修复外观配置并重启，避免覆盖原有设置。\n" +
                                     self.owner.appearance_error)
@@ -499,7 +642,12 @@ class Session(Gtk.Box):
         apply_appearance(self.terminal, window.appearance)
         self.terminal.set_hexpand(True)
         self.terminal.set_vexpand(True)
-        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        settings = dict(window.appearance, **window.background_settings)
+        self.background = BackgroundBox(window.background_renderer, settings, terminal=True,
+                                        anchor=window.background_layout,
+                                        orientation=Gtk.Orientation.HORIZONTAL)
+        body = self.background
+        apply_appearance(self.terminal, settings)
         body.pack_start(self.terminal, True, True, 0)
         body.pack_start(Gtk.Scrollbar(orientation=Gtk.Orientation.VERTICAL,
                                      adjustment=self.terminal.get_vadjustment()), False, False, 0)
@@ -765,7 +913,11 @@ class SessionNotebook(Gtk.Notebook):
 class Window(Gtk.ApplicationWindow):
     def __init__(self, application=None, store=None, command_factory=None, enable_quota=True):
         super().__init__(application=application, title="zTerm")
+        visual = self.get_screen().get_rgba_visual()
+        if visual:
+            self.set_visual(visual)
         self.set_default_size(1120, 720)
+        self.set_position(Gtk.WindowPosition.CENTER)
         self.set_wmclass("ssh-workbench", "SSH Workbench")
         self.set_icon_from_file(str(Path(__file__).with_name("workbench.svg")))
         self.store = store or AliasStore()
@@ -781,6 +933,10 @@ class Window(Gtk.ApplicationWindow):
             self.appearance_error = str(error)
         self.interface_style = InterfaceStyle(self)
         self.interface_style.apply(self.appearance)
+        self.background_renderer = BackgroundRenderer()
+        self.background_settings = {key: self.appearance[key] for key in BACKGROUND_DEFAULTS}
+        self.background_renderer.changed = self.background_changed
+        self.connect("destroy", lambda *_: self.background_renderer.close())
         self.command_factory = command_factory or self.default_command
         self.groups, self.rows, self.counters = {}, {}, {}
         self.current = None
@@ -802,28 +958,31 @@ class Window(Gtk.ApplicationWindow):
         self.sidebar_toggle.set_image(Gtk.Image.new_from_icon_name("view-sidebar-symbolic", Gtk.IconSize.BUTTON))
         self.sidebar_toggle.set_tooltip_text("收起服务器栏")
         self.sidebar_toggle.get_accessible().set_name("展开或收起服务器栏")
-        header.pack_start(self.sidebar_toggle)
         self.settings_button = Gtk.MenuButton(label="设置")
         self.settings_menu = Gtk.Menu()
         self.interface_style.attach(self.settings_menu)
         for label, callback in [("快捷键", lambda _: self.show_shortcuts()),
                                 ("外观设置", lambda _: self.show_appearance()),
-                                ("订阅额度", lambda _: self.quota_settings())]:
+                                ("订阅额度", lambda _: self.quota_settings()),
+                                ("诊断日志", lambda _: self.show_diagnostics())]:
             item = Gtk.MenuItem(label=label)
             item.connect("activate", callback)
             self.settings_menu.append(item)
         self.settings_menu.show_all()
         self.settings_button.set_popup(self.settings_menu)
         header.pack_end(self.settings_button)
-        self.files_toggle = Gtk.ToggleButton(label="文件")
-        self.files_toggle.set_tooltip_text("浏览当前服务器的 SFTP 文件")
-        header.pack_end(self.files_toggle)
+        self.files_toggle = Gtk.ToggleButton()
+        self.files_toggle.set_image(Gtk.Image.new_from_icon_name("folder-symbolic", Gtk.IconSize.BUTTON))
+        self.files_toggle.set_always_show_image(True)
+        self.files_toggle.get_accessible().set_name("展开或收起文件栏")
+        self.files_toggle.set_tooltip_text("展开文件栏（SFTP）")
         self.set_titlebar(header)
         pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.pane = pane
         self.sidebar_width = 220
         pane.set_position(220)
-        layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        layout = BackgroundBox(self.background_renderer, self.appearance, orientation=Gtk.Orientation.VERTICAL)
+        self.background_layout = layout
         self.add(layout)
         layout.pack_start(pane, True, True, 0)
         self.status_bar = Gtk.Box(spacing=8, margin=6)
@@ -849,9 +1008,9 @@ class Window(Gtk.ApplicationWindow):
         layout.pack_end(self.status_bar, False, False, 0)
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=10)
         self.sidebar = side
+        self.server_dock = self.make_sidebar_dock(self.sidebar_toggle, Gtk.Align.START)
         side.get_style_context().add_class("workspace-sidebar")
         side.set_size_request(170, -1)
-        side.pack_start(Gtk.Label(label="服务器", xalign=0), False, False, 4)
         self.search = Gtk.SearchEntry(placeholder_text="搜索别名或 IP")
         self.search.connect("search-changed", lambda _: self.server_list.invalidate_filter())
         side.pack_start(self.search, False, False, 0)
@@ -893,7 +1052,8 @@ class Window(Gtk.ApplicationWindow):
         side.pack_end(self.edit_button, False, False, 0)
         self.add_server_button = button("添加服务器", lambda _: self.add_dialog(), "新增服务器")
         side.pack_end(self.add_server_button, False, False, 0)
-        pane.pack1(side, False, False)
+        self.server_dock.pack_start(side, True, True, 0)
+        pane.pack1(self.server_dock, False, False)
         self.stack = Gtk.Stack()
         welcome = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         welcome.set_valign(Gtk.Align.CENTER)
@@ -906,18 +1066,26 @@ class Window(Gtk.ApplicationWindow):
                                     "切换服务器会保留当前连接。", justify=Gtk.Justification.CENTER), False, False, 0)
         self.stack.add_named(welcome, "welcome")
         self.files = FileTransfers(self)
+        self.file_dock = self.make_sidebar_dock(self.files_toggle, Gtk.Align.END)
+        self.file_dock.pack_start(self.files.panel, True, True, 0)
         self.file_pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.file_pane.pack1(self.stack, True, False)
-        self.file_pane.pack2(self.files.panel, False, False)
+        self.file_pane.pack2(self.file_dock, False, False)
         pane.pack2(self.file_pane, True, False)
+        self.files.bind_pane()
+        pane.connect("notify::position", self.sidebar_position_changed)
         self.add_row("")
         for alias in self.aliases:
             self.add_row(alias)
         self.connect("key-press-event", self.key_pressed)
         self.connect("delete-event", self.close_window)
-        self.show_all()
         self.files.panel.hide()
         self.files.panel.set_no_show_all(True)
+        # Initialize children while keeping the dock itself hidden.
+        for child in self.files.panel.get_children():
+            child.show_all()
+        self.show_all()
+        self.background_renderer.request(self.appearance)
         self.files_toggle.connect("toggled", self.files.toggle)
         side.set_no_show_all(True)
         self.sidebar_toggle.connect("toggled", self.toggle_sidebar)
@@ -937,7 +1105,25 @@ class Window(Gtk.ApplicationWindow):
         self.sidebar.set_visible(visible)
         if visible:
             self.pane.set_position(self.sidebar_width)
+        else:
+            self.pane.set_position(SIDEBAR_RAIL_WIDTH)
         toggle.set_tooltip_text("收起服务器栏" if visible else "展开服务器栏")
+
+    def make_sidebar_dock(self, toggle, alignment):
+        dock = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        dock.set_size_request(SIDEBAR_RAIL_WIDTH, -1)
+        dock.get_style_context().add_class("workspace-sidebar")
+        toggle.set_size_request(32, 32)
+        toggle.set_halign(alignment)
+        toggle.set_margin_start(8)
+        toggle.set_margin_end(8)
+        toggle.set_margin_top(8)
+        dock.pack_start(toggle, False, False, 0)
+        return dock
+
+    def sidebar_position_changed(self, pane, _property):
+        if not self.sidebar_toggle.get_active() and pane.get_position() != SIDEBAR_RAIL_WIDTH:
+            pane.set_position(SIDEBAR_RAIL_WIDTH)
 
     def stop_quota(self, *_):
         self.quota_closed = True
@@ -1045,13 +1231,43 @@ class Window(Gtk.ApplicationWindow):
                   "Ctrl+Shift+C / V：复制 / 粘贴\nAlt+1 … 9：切换会话\n"
                   "Ctrl+PageUp / PageDown：切换会话\nCtrl+加号 / 减号 / 0：字体缩放")
 
+    def show_diagnostics(self):
+        path = diagnostics.get_log_path()
+        self.info("诊断日志", (f"日志文件：{path}\n崩溃／手动线程栈：{path.parent / 'crash.log'}\n"
+                              f"当前进程 PID：{os.getpid()}\n\n"
+                              "默认记录窗口、文件任务和异常；界面超过 10 秒无心跳会自动记录线程栈。\n"
+                              "主日志最多保留 4 份，每份约 2 MiB。\n"
+                              "不记录密码、终端正文或传输文件内容。\n"
+                              "详细日志可在启动前设置 ZTERM_LOG_LEVEL=DEBUG。"
+                              if path else "诊断日志尚未初始化，请从 zterm 启动器重新启动应用。"))
+
     def set_appearance(self, settings):
+        LOG.info("Appearance applied theme=%s interface=%s", settings["theme"],
+                 settings.get("interface_theme", "terminal"))
         self.appearance = settings.copy()
-        self.interface_style.apply(settings)
+        self.preview_background(settings)
         for group in self.groups.values():
             for session in group.get_children():
                 apply_appearance(session.terminal, settings)
                 session.terminal.set_font_scale(1.0)
+
+    def background_changed(self):
+        if self.appearance_dialog:
+            self.appearance_dialog.background_status()
+
+    def preview_background(self, settings):
+        self.interface_style.apply(settings)
+        self.background_settings = {key: settings.get(key, default)
+                                    for key, default in BACKGROUND_DEFAULTS.items()}
+        self.background_layout.update(settings)
+        self.background_renderer.request(settings)
+        # Existing terminals preview only the background effects. Font and
+        # syntax colors retain their saved values until the user applies them.
+        terminal_settings = dict(self.appearance, **self.background_settings)
+        for group in self.groups.values():
+            for session in group.get_children():
+                session.background.update(terminal_settings)
+                apply_appearance(session.terminal, terminal_settings)
 
     def display_name(self, alias):
         return self.profiles[alias]["name"] if alias in self.profiles else alias or "本地终端"
@@ -1434,6 +1650,31 @@ class Application(Gtk.Application):
     def __init__(self):
         GLib.set_application_name("zTerm")
         super().__init__(application_id="local.ssh.Workbench", flags=Gio.ApplicationFlags.FLAGS_NONE)
+        self.watchdog = None
+        self.heartbeat_timer = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        try:
+            diagnostics.setup_logging()
+        except OSError as error:
+            print(f"zTerm: diagnostic log unavailable ({type(error).__name__})", file=sys.stderr)
+        else:
+            diagnostics.capture_toolkit_warnings()
+            self.watchdog = diagnostics.start_mainloop_watchdog()
+            self.heartbeat_timer = GLib.timeout_add_seconds(1, self.watchdog.mark_heartbeat)
+            LOG.info("Application started pid=%s Python=%s GTK=%s.%s display=%s", os.getpid(),
+                     sys.version.split()[0], Gtk.get_major_version(), Gtk.get_minor_version(),
+                     Gdk.Display.get_default().__class__.__name__)
+            LOG.info("Application source=%s", __file__)
+
+    def do_shutdown(self):
+        if self.heartbeat_timer is not None:
+            GLib.source_remove(self.heartbeat_timer)
+        if self.watchdog is not None:
+            self.watchdog.stop()
+        LOG.info("Application stopped")
+        Gtk.Application.do_shutdown(self)
 
     def do_activate(self):
         window = self.get_active_window()

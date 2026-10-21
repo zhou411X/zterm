@@ -13,15 +13,28 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - 标签编号始终按从左到右的位置更新，拖拽或关闭后连续排列；`Alt+1 … 9` 对应显示编号。
 - 窗口标题随当前服务器切换；统一底栏左侧显示服务器与当前会话状态，离线后可直接重连，中间显示 Codex 订阅额度。
 - 设置字体、字号、文字、背景及光标颜色，预览后保存并应用到所有会话。
-- 外观设置使用独立窗口，可单独移动和缩放；重复打开保留当前预览，关闭主窗口时自动清理。
+- 主窗口和外观设置窗口在 X11 下请求初始居中，Wayland 下由桌面决定位置；外观设置为独立窗口，可单独移动和缩放，重复打开保留当前预览。
+- 左右侧栏顶部各有一个图标，点击展开或收起；收起后保留窄图标栏。文件栏每次启动默认收起，拖动分隔线调宽，重新展开保留本次窗口宽度。
+- 外观设置支持背景不透明度、背景图片、图片强度及图片毛玻璃；文字保持清晰，可选择是否把图片同时应用到终端。
 - SFTP 文件面板支持浏览、文件/目录上传下载、拖入上传、新建目录、重命名和删除文件/空目录；后台队列支持进度、取消、重试及同名处理。
 - 应用界面主题覆盖标题栏、侧栏、标签、底栏和菜单；可跟随终端配色、独立搭配 14 套明暗配色，或跟随系统外观，支持预览、取消恢复及保存。
 - Solarized、Gruvbox、PaperColor、Peaksea 的 Light / Dark 配色及 ANSI 16 色调色板。
 - Gruvbox、PaperColor、Peaksea 的普通/亮 ANSI 色采用本地 Vim 主题的主要语法高亮 RGB；具体着色位置仍由命令程序决定。
+- PaperColor 额外适配截图中默认 Vim 的注释/语句色槽及 256 色索引 81、121；这是调色板近似，不替代 Vim 的语法主题规则。
 - 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认（李子色），共 14 套主题。
 - 圆角羽毛应用图标和独立桌面启动入口；配置在重启后保留，不自动重连服务器。
 
-## v0.2.6 更新
+## v0.2.7 更新
+
+- 修复 SFTP 上传选择窗口隐藏确认按钮、阻塞主窗口输入的问题；改为非模态异步对话框，保持任务目标不随服务器切换而改变。
+- 左右侧栏顶部各提供展开/收起图标，收起后只留窄图标栏；文件栏固定在右侧、默认关闭，进度队列保留在栏内。
+- 外观设置新增背景透明度、背景图片、图片强度与图片模糊，可选择是否应用到终端；随包附带浅色和深色背景图。
+- 默认使用 GTK 原生显示后端，避免强制 XWayland 在分数缩放下造成字体发虚；Wayland 窗口位置由桌面决定，X11 下请求初始居中。
+- 调整 PaperColor 的 ANSI 与部分 256 色槽，使指定 Vim 语法颜色更接近；仍不替代 Vim 语法规则。
+- 新增私有轮转日志、异常与主循环卡顿诊断，可从“设置 → 诊断日志”查看路径。
+- deb 新增 `python3-gi-cairo`、`python3-cairo`、`python3-pil` 依赖；沿用现有配置和凭据。
+
+### v0.2.6 更新
 
 - 新增 SFTP 文件面板：浏览目录、上传/下载文件和目录、新建目录、重命名、删除文件或空目录。
 - 点击“上传”后双击单个本地文件即可上传，也支持多选和拖入上传；传输队列位于文件面板底部，不占终端高度。
@@ -46,17 +59,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.6_all.deb`，进入下载目录后安装：
+`zterm_0.2.7_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.6_all.deb
+sudo apt install ./zterm_0.2.7_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.6_all.deb
+sudo dpkg -i ./zterm_0.2.7_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -71,13 +84,16 @@ sudo apt --fix-broken install
 
 ```sh
 sudo apt update
-sudo apt install git python3 python3-gi python3-paramiko gir1.2-gtk-3.0 gir1.2-vte-2.91 gir1.2-secret-1 gnome-keyring librsvg2-common openssh-client
+sudo apt install git python3 python3-gi python3-gi-cairo python3-cairo python3-pil python3-paramiko gir1.2-gtk-3.0 gir1.2-vte-2.91 gir1.2-secret-1 gnome-keyring librsvg2-common openssh-client
 git clone https://github.com/zhou411X/zterm.git
 cd zterm
 /usr/bin/python3 app.py
 ```
 
 程序要求 Python 3.9+。使用系统 `/usr/bin/python3`，以便找到 apt 安装的 GTK/VTE 绑定。
+zTerm 使用 GTK 默认的显示后端，在 Wayland 桌面上使用原生 Wayland，避免强制 XWayland 在分数缩放下使文字发虚。
+Wayland 下主窗口和外观窗口的位置由桌面决定；X11 下请求初始居中，之后可自由拖动。不修改系统全局设置。
+如需手动使用 XWayland，可用 `GDK_BACKEND=x11 /usr/bin/python3 app.py` 启动，但分数缩放下文字可能变模糊。
 如需安装到当前用户（这一步无需 sudo）：
 
 ```sh
@@ -111,12 +127,12 @@ deb 包名从 `ssh-workbench` 改为 `zterm`，安装新版时替换旧包。
 ```sh
 sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py
+/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.6_all.deb
+sudo apt install ./dist/zterm_0.2.7_all.deb
 ```
 
-可通过 `sh build_deb.sh 0.2.6` 显式指定版本。安装包为 `Architecture: all`，
+可通过 `sh build_deb.sh 0.2.7` 显式指定版本。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
 文档放在 `/usr/share/doc/zterm/`，继续使用原有用户配置。
@@ -136,14 +152,36 @@ sudo apt install ./dist/zterm_0.2.6_all.deb
 此标记依据标题，不扫描远端进程；程序没有上报标题或 shell 没有恢复标题时，活动信息可能缺失或过时。
 会话结束时移除标记并显示结束状态，重连清空旧活动标题。
 
+## 背景与毛玻璃
+
+“设置 → 外观设置 → 背景效果”中可选 PNG、JPEG、WebP 背景图片，调整图片强度和毛玻璃模糊程度。
+“背景不透明度”范围为 15%–100%，100% 不透明；只影响背景，文字和按钮保持清晰。
+图片在工作区居中裁剪填充；勾选“背景图片同时应用到终端”后才用于终端内容区，
+标题栏使用主题色透明背景。未勾选时终端保持自己的背景色，仍可调整背景透明度。
+毛玻璃只模糊所选图片，不会实时模糊窗口后方的桌面；桌面透视需要窗口合成器支持。
+
+附带浅色 `zterm-mist-light.png` 和深色 `zterm-mist-dark.png` 两张背景图，不会自动替换现有背景。
+deb 安装后位于 `/usr/share/ssh-workbench/backgrounds/`，用户级安装位于
+`${XDG_DATA_HOME:-~/.local/share}/ssh-workbench/backgrounds/`，源码中位于 `backgrounds/`。
+在背景效果页选择相应图片即可使用；目录内的 `generation-prompts.json` 记录 AI 生成提示词。
+
+图片在后台读取和模糊，最大接受 4000 万像素，绘制缓存最长边为 2560 像素；动画图片只读取首帧。
+读取期间仍可操作终端，处理完成前不能保存。图片不可读时显示错误，可重新选择或清除；
+重启时图片丢失则退回主题色。保存的是图片绝对路径，请保留原文件；清除背景不会删除文件。
+设置会即时预览；取消或关闭外观窗口恢复保存值。字体和语法颜色仍在下方终端预览，保存后应用到会话。
+
 ## SFTP 文件传输
 
-选择远程服务器后点击标题栏“文件”，右侧打开可调整宽度的文件面板；
+文件栏固定在右侧，每次启动只显示顶部文件夹图标；选择远程服务器后点击该图标展开，再次点击收起。
+拖动分隔线调整宽度，收起再打开保留本次窗口的宽度；调整主窗口大小时优先保持侧栏宽度。
 也可右键服务器 →“浏览文件（SFTP）”，只浏览文件而不新建终端。
 首次进入远端登录目录，可输入远端绝对路径、双击目录或点击“↑”导航。
 每个服务器在当前窗口内保留浏览目录；不自动跟随终端中的 `cd`。
 
 点击“上传”后，双击单个本地文件即可上传；也可多选后点击“上传”、选择整个目录，或把本地文件拖入文件面板。
+文件选择和命名窗口采用非模态异步处理，打开期间主终端可继续操作；同一目标重复点击会唤回已有窗口，
+不同服务器或任务使用各自的窗口，并显示绑定的服务器和路径。
+确认/取消按钮保留在窗口底部，兼容 GNOME 的标题栏按钮设置。
 下载先选择远端条目，再选择本地目标目录。
 队列位于右侧“文件 · SFTP”面板底部，不占终端高度；串行执行，显示进度和平均速度，支持取消与重试。
 收起面板会同时隐藏队列，传输继续进行；切换服务器或关闭终端标签也不取消传输。
@@ -157,6 +195,25 @@ sudo apt install ./dist/zterm_0.2.6_all.deb
 文件先写同目录 `.zterm-*.part`，成功后再完成替换；远端覆盖要求支持 OpenSSH `posix-rename` 扩展。
 取消或断网可能留下远端临时文件，任务悬停详情显示路径；重试会重新传输。
 首版不支持续传/目录同步、不跟随符号链接，仅删除文件或空目录，不递归删除非空目录。
+
+## 诊断日志
+
+启动时自动写入 `${XDG_STATE_HOME:-~/.local/state}/zterm/zterm.log`；
+“设置 → 诊断日志”显示当前日志路径和进程 PID。默认 INFO，需详细连接阶段记录时：
+
+```sh
+ZTERM_LOG_LEVEL=DEBUG zterm
+```
+
+日志记录对话框打开/确认/关闭、文件任务编号/状态/字节数、连接进程和异常栈位置，
+不记录密码、完整 SSH 参数/环境、终端正文或传输文件内容。目录权限为 0700、文件为 0600。
+GTK/VTE 警告仅记录来源、级别和调用位置，不保存可能包含用户数据的原始警告文本。
+主日志轮转，最多 4 份、每份约 2 MiB。主线程超过 10 秒没有心跳时自动记录线程栈，
+恢复后记录恢复事件；正常运行的模态事件循环可能仍有心跳，可通过对话框日志判断。
+Python 致命错误和手动线程栈写入同目录 `crash.log`；仅对运行新版且已启用日志的
+进程执行 `kill -USR1 <设置中显示的PID>` 可采集线程栈。不要对旧版进程发送此信号。
+`crash.log` 超过 2 MiB 时在下次启动截断；单次运行中反复手动转储仍可能增大。
+报告问题时提供日志、发生时间及操作步骤即可；退出并重开应用后才加载本次新增的日志功能。
 
 ## Codex 订阅额度
 
@@ -174,12 +231,14 @@ Codex 使用已登录 CLI 的官方 [account/rateLimits/read](https://learn.chat
 
 ```sh
 sudo apt install xvfb xauth openssh-sftp-server
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py test_workbench.py test_quota.py test_credentials.py test_transfer.py test_file_browser.py
+/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py test_workbench.py test_quota.py test_credentials.py test_transfer.py test_file_browser.py test_diagnostics.py test_background.py
 /usr/bin/python3 test_credentials.py
 /usr/bin/python3 test_quota.py
 /usr/bin/python3 test_transfer.py
+/usr/bin/python3 test_diagnostics.py
 GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_workbench.py
 GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_file_browser.py
+GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_background.py
 ```
 
 测试涵盖独立服务器表单、右键编辑、侧栏排序持久化、旧配置兼容、密码保留/替换/清除及失败回滚、
@@ -192,7 +251,7 @@ SFTP 测试使用临时目录和本机 SFTP 子系统；安装 openssh-server �
 临时 SSH 服务、公钥登录和主机密钥不匹配拒绝。测试不连接用户实际服务器。
 
 详细用法和快捷键见 [HELP.txt](HELP.txt)，主题来源与适配约定见
-[THEME_SOURCES.txt](THEME_SOURCES.txt)。终端配色只改变终端默认色及 ANSI 0–15，
+[THEME_SOURCES.txt](THEME_SOURCES.txt)。终端配色改变默认色及 ANSI 0–15；PaperColor 另适配索引 81、121，
 不覆盖程序自行指定的 truecolor 颜色。
 
 ## 开源许可
