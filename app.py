@@ -31,6 +31,7 @@ from file_browser import FileTransfers
 from quota import fetch as fetch_quota, display as display_quota
 
 LOG = logging.getLogger("zterm.app")
+APP_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
 SIDEBAR_RAIL_WIDTH = 56
 
 
@@ -635,6 +636,10 @@ class Session(Gtk.Box):
         self.tab_label.set_max_width_chars(1)
         self.tab_label.set_tooltip_text(self.tab_title)
         self.terminal = Vte.Terminal()
+        # VTE 0.76+ can keep complete rows against the bottom edge even when
+        # a maximized/Wayland window leaves a fraction of a character cell.
+        if hasattr(self.terminal, "set_yalign"):
+            self.terminal.set_yalign(Vte.Align.END)
         self.terminal.set_scrollback_lines(20000)
         self.terminal.set_scroll_on_keystroke(True)
         self.terminal.set_scroll_on_output(False)
@@ -924,6 +929,7 @@ class Window(Gtk.ApplicationWindow):
         self.server_dialog = None
         self.server_editors = {}
         self.appearance_dialog = None
+        self.about_dialog = None
         self.appearance_store = AppearanceStore(self.store.path.with_name("appearance.json"))
         self.appearance_error = None
         try:
@@ -964,7 +970,8 @@ class Window(Gtk.ApplicationWindow):
         for label, callback in [("快捷键", lambda _: self.show_shortcuts()),
                                 ("外观设置", lambda _: self.show_appearance()),
                                 ("订阅额度", lambda _: self.quota_settings()),
-                                ("诊断日志", lambda _: self.show_diagnostics())]:
+                                ("诊断日志", lambda _: self.show_diagnostics()),
+                                ("关于 zTerm", lambda _: self.show_about())]:
             item = Gtk.MenuItem(label=label)
             item.connect("activate", callback)
             self.settings_menu.append(item)
@@ -1230,6 +1237,18 @@ class Window(Gtk.ApplicationWindow):
         self.info("快捷键", "Ctrl+Shift+T：新会话\nCtrl+Shift+W：关闭会话\n"
                   "Ctrl+Shift+C / V：复制 / 粘贴\nAlt+1 … 9：切换会话\n"
                   "Ctrl+PageUp / PageDown：切换会话\nCtrl+加号 / 减号 / 0：字体缩放")
+
+    def show_about(self):
+        if self.about_dialog is None:
+            dialog = Gtk.AboutDialog(title="关于 zTerm", program_name="zTerm",
+                                     version=APP_VERSION, logo=self.get_icon(),
+                                     comments="支持本地终端、SSH 与文件传输的终端工具",
+                                     transient_for=self, modal=False, destroy_with_parent=True)
+            self.interface_style.attach(dialog)
+            dialog.connect("response", lambda widget, *_: widget.destroy())
+            dialog.connect("destroy", lambda *_: setattr(self, "about_dialog", None))
+            self.about_dialog = dialog
+        self.about_dialog.present()
 
     def show_diagnostics(self):
         path = diagnostics.get_log_path()

@@ -24,7 +24,14 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认（李子色），共 14 套主题。
 - 圆角羽毛应用图标和独立桌面启动入口；配置在重启后保留，不自动重连服务器。
 
-## v0.2.8 更新
+## v0.2.9 更新
+
+- 优化终端底部留白：VTE 0.76 及以上将完整字符行贴底显示，不足一行的像素余量留在顶部，不改变字号或完整行数；旧版 VTE 保持默认对齐。
+- “设置”新增“关于 zTerm”，显示当前运行版本；关于窗口可重复打开，打开期间终端仍可操作。
+- 新增统一版本文件 `VERSION`，源码安装与 deb 均携带版本信息；显式指定打包版本时，关于窗口显示实际包版本。
+- 沿用原生 Wayland、现有服务器列表、凭据及外观配置；升级后重启应用以加载新版。
+
+### v0.2.8 更新
 
 - 服务器 IP/别名的右键菜单增加“移除服务器”，顺序为“编辑服务器 → 移除服务器 → 复制服务器 → 浏览服务器文件”，去除文件菜单中的“（SFTP）”提示。
 - 右键移除绑定所点击的服务器；移除其他服务器时，当前终端页面和连接保持运行。
@@ -65,17 +72,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.8_all.deb`，进入下载目录后安装：
+`zterm_0.2.9_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.8_all.deb
+sudo apt install ./zterm_0.2.9_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.8_all.deb
+sudo dpkg -i ./zterm_0.2.9_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -100,6 +107,8 @@ cd zterm
 zTerm 使用 GTK 默认的显示后端，在 Wayland 桌面上使用原生 Wayland，避免强制 XWayland 在分数缩放下使文字发虚。
 Wayland 下主窗口和外观窗口的位置由桌面决定；X11 下请求初始居中，之后可自由拖动。不修改系统全局设置。
 如需手动使用 XWayland，可用 `GDK_BACKEND=x11 /usr/bin/python3 app.py` 启动，但分数缩放下文字可能变模糊。
+VTE 0.76 及以上将完整字符行贴底显示，不足一行的高度余量留在顶部，减少最大化时终端底部的空白；
+字号、行数和状态栏保持不变。更早的 VTE 沿用其默认对齐方式。
 如需安装到当前用户（这一步无需 sudo）：
 
 ```sh
@@ -136,10 +145,11 @@ sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
 /usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.8_all.deb
+sudo apt install ./dist/zterm_0.2.9_all.deb
 ```
 
-可通过 `sh build_deb.sh 0.2.8` 显式指定版本。安装包为 `Architecture: all`，
+默认版本取自源码中的 `VERSION` 文件，也可通过 `sh build_deb.sh 0.2.9` 显式指定版本。
+“设置 → 关于 zTerm”显示当前运行版本；deb 中的显示版本与打包时指定的版本一致。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
 文档放在 `/usr/share/doc/zterm/`，继续使用原有用户配置。

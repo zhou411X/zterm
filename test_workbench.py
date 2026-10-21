@@ -237,6 +237,72 @@ class ModelTests(unittest.TestCase):
 
 
 class TerminalTests(unittest.TestCase):
+    def test_terminal_grid_stays_at_bottom_without_clipping_or_mouse_offset(self):
+        import cairo
+        from app import Window, Gtk, Gdk, Pango, Vte
+
+        if not hasattr(Vte.Terminal, "set_yalign"):
+            self.skipTest("VTE 0.76 is required for grid alignment")
+        with tempfile.TemporaryDirectory() as directory:
+            store = AliasStore(Path(directory) / "servers.json")
+            store.save([])
+            window = Window(store=store, enable_quota=False,
+                            command_factory=lambda _: ["/bin/cat"])
+            window.confirm = lambda *_: True
+            try:
+                window.server_list.select_row(window.rows[""])
+                session = window.current_session()
+                terminal = session.terminal
+                terminal.set_font(Pango.FontDescription("Monospace 18"))
+                pump_until(lambda: session.alive)
+                pid = session.pid
+                terminal.set_allow_hyperlink(True)
+                for height, scale in ((800, 1.0), (820, 1.2), (810, 0.9)):
+                    terminal.set_font_scale(scale)
+                    old_height = terminal.get_allocated_height()
+                    window.resize(1100, height)
+                    pump_until(lambda: terminal.get_allocated_height() != old_height)
+                    rows, cell = terminal.get_row_count(), terminal.get_char_height()
+                    padding = terminal.get_style_context().get_padding(Gtk.StateFlags.NORMAL)
+                    bottom = terminal.get_allocated_height() - padding.bottom
+                    top = bottom - rows * cell
+                    # The alternate screen exercises a full-screen app's last
+                    # row, while OSC 8 allows hit-testing the same visible cell.
+                    terminal.feed((f"\x1b[?1049h\x1b[2J\x1b[H\x1b[48;2;10;180;70m   "
+                                   f"\x1b[{rows};1H\x1b]8;;https://example.test/last\x1b\\"
+                                   "   LINK\x1b]8;;\x1b\\\x1b[0m\x1b[?25l").encode())
+
+                    def row_is_complete():
+                        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32,
+                                                     terminal.get_allocated_width(),
+                                                     terminal.get_allocated_height())
+                        terminal.draw(cairo.Context(surface))
+                        surface.flush()
+                        data, stride = bytes(surface.get_data()), surface.get_stride()
+                        return all(data[y * stride + 5 * 4:y * stride + 5 * 4 + 3]
+                                   == bytes((70, 180, 10))
+                                   for y in (top, top + cell - 1, bottom - cell, bottom - 1))
+
+                    pump_until(row_is_complete)
+                    event = Gdk.Event.new(Gdk.EventType.MOTION_NOTIFY)
+                    # VTE handles input on a separate input-only GdkWindow.
+                    for child in terminal.get_parent_window().get_children():
+                        event.window = child
+                        if Gtk.get_event_widget(event) is terminal:
+                            break
+                    else:
+                        self.fail("VTE input window was not found")
+                    event.x = padding.left + terminal.get_char_width() * 4
+                    event.y = bottom - cell / 2
+                    self.assertEqual(terminal.hyperlink_check_event(event), "https://example.test/last")
+                    self.assertEqual(terminal.get_row_count(), rows)
+                    self.assertEqual(session.pid, pid)
+                    self.assertTrue(session.alive)
+                    terminal.feed(b"\x1b[?1049l")
+            finally:
+                window.close_window()
+                window.destroy()
+
     def test_server_context_edit_preserves_running_sessions_and_order(self):
         from types import SimpleNamespace
         from unittest.mock import Mock, patch
@@ -1563,7 +1629,7 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.groups, {}, "Startup must not connect automatically")
                 menu_items = window.settings_menu.get_children()
                 self.assertEqual([item.get_label() for item in menu_items],
-                                 ["快捷键", "外观设置", "订阅额度", "诊断日志"])
+                                 ["快捷键", "外观设置", "订阅额度", "诊断日志", "关于 zTerm"])
                 for item, method in zip(menu_items[:1], ("show_shortcuts",)):
                     with patch.object(window, method) as action:
                         item.activate()

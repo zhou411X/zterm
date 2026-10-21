@@ -82,7 +82,13 @@ class BackgroundTests(unittest.TestCase):
         # Explicit ANSI backgrounds stay opaque despite the translucent default
         # background, as do the foreground glyphs rendered by VTE.
         session.terminal.feed(b"\x1b[H\x1b[48;2;10;180;70m   \x1b[0m")
-        pump_until(lambda: pixel(session.terminal, 5, 5) == (10, 180, 70, 255))
+        terminal = session.terminal
+        padding = terminal.get_style_context().get_padding(Gtk.StateFlags.NORMAL)
+        top = padding.top
+        if hasattr(terminal, "get_yalign") and terminal.get_yalign().value_nick == "end":
+            top = (terminal.get_allocated_height() - padding.bottom
+                   - terminal.get_row_count() * terminal.get_char_height())
+        pump_until(lambda: pixel(terminal, 5, top + 2) == (10, 180, 70, 255))
         self.assertEqual(window.appearance, original)
         session.terminal.feed_child(b"background-keeps-pty-alive\n")
         pump_until(lambda: not session.active)

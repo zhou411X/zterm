@@ -3,7 +3,7 @@
 set -eu
 umask 022
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-version=${1:-0.2.8}
+version=${1:-$(cat "$source_dir/VERSION")}
 dpkg --validate-version "$version"
 case "$version" in
     *[!0-9A-Za-z.+:~\-]*) echo 'Invalid package version' >&2; exit 1 ;;
@@ -19,6 +19,7 @@ install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/quota.py
     "$source_dir/file_browser.py" "$source_dir/transfer.py" "$source_dir/diagnostics.py" "$source_dir/background.py" \
     "$source_dir/workbench.svg" "$app_dir/"
 install -m 755 "$source_dir/credentials.py" "$app_dir/"
+printf '%s\n' "$version" > "$app_dir/VERSION"
 install -d "$app_dir/backgrounds"
 install -m 644 "$source_dir/backgrounds/zterm-mist-light.png" \
     "$source_dir/backgrounds/zterm-mist-dark.png" "$source_dir/backgrounds/generation-prompts.json" \
