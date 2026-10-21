@@ -24,7 +24,13 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认（李子色），共 14 套主题。
 - 圆角羽毛应用图标和独立桌面启动入口；配置在重启后保留，不自动重连服务器。
 
-## v0.2.7 更新
+## v0.2.8 更新
+
+- 服务器 IP/别名的右键菜单增加“移除服务器”，顺序为“编辑服务器 → 移除服务器 → 复制服务器 → 浏览服务器文件”，去除文件菜单中的“（SFTP）”提示。
+- 右键移除绑定所点击的服务器；移除其他服务器时，当前终端页面和连接保持运行。
+- 沿用活动会话确认、未完成文件任务阻止移除、保存失败保留配置及钥匙环清理机制。
+
+### v0.2.7 更新
 
 - 修复 SFTP 上传选择窗口隐藏确认按钮、阻塞主窗口输入的问题；改为非模态异步对话框，保持任务目标不随服务器切换而改变。
 - 左右侧栏顶部各提供展开/收起图标，收起后只留窄图标栏；文件栏固定在右侧、默认关闭，进度队列保留在栏内。
@@ -59,17 +65,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.7_all.deb`，进入下载目录后安装：
+`zterm_0.2.8_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.7_all.deb
+sudo apt install ./zterm_0.2.8_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.7_all.deb
+sudo dpkg -i ./zterm_0.2.8_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -114,7 +120,8 @@ sh install.sh
 填写的密码通过 libsecret 保存在系统钥匙环，配置文件、SSH 参数和环境变量中均不包含密码。
 保存密码需要桌面 Secret Service（如 GNOME Keyring）；钥匙环不可用时会提示保存失败。
 SSH 仍先尝试密钥，再通过 askpass 读取保存的密码；首次连接需要确认服务器主机密钥。
-移除服务器也会清除对应钥匙环条目，不修改 `.bashrc` 或 `.ssh/config`。
+侧栏底部或右键服务器 →“移除服务器”可删除对应连接配置及钥匙环条目，不修改 `.bashrc` 或 `.ssh/config`。
+右键移除作用于所点击的服务器；有活动会话时先确认，有未完成文件任务时禁止移除，其他服务器会话保持运行。
 
 从 SSH 工作台升级：应用现名 zTerm，启动命令为 `zterm`；旧命令 `ssh-workbench`
 仍可使用。沿用原来的数据目录、配置目录和桌面入口标识，服务器列表和外观设置无需迁移。
@@ -129,10 +136,10 @@ sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
 /usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.7_all.deb
+sudo apt install ./dist/zterm_0.2.8_all.deb
 ```
 
-可通过 `sh build_deb.sh 0.2.7` 显式指定版本。安装包为 `Architecture: all`，
+可通过 `sh build_deb.sh 0.2.8` 显式指定版本。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
 文档放在 `/usr/share/doc/zterm/`，继续使用原有用户配置。
@@ -174,7 +181,7 @@ deb 安装后位于 `/usr/share/ssh-workbench/backgrounds/`，用户级安装位
 
 文件栏固定在右侧，每次启动只显示顶部文件夹图标；选择远程服务器后点击该图标展开，再次点击收起。
 拖动分隔线调整宽度，收起再打开保留本次窗口的宽度；调整主窗口大小时优先保持侧栏宽度。
-也可右键服务器 →“浏览文件（SFTP）”，只浏览文件而不新建终端。
+也可右键服务器 →“浏览服务器文件”，只浏览文件而不新建终端。
 首次进入远端登录目录，可输入远端绝对路径、双击目录或点击“↑”导航。
 每个服务器在当前窗口内保留浏览目录；不自动跟随终端中的 `cd`。
 

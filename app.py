@@ -1335,7 +1335,7 @@ class Window(Gtk.ApplicationWindow):
         row.set_tooltip_text((f'{profile["username"]}@{profile["host"]} · 端口 {profile["port"]}')
                              if profile else "ssh " + alias if alias else "本地登录 shell")
         if alias:
-            row.set_tooltip_text(row.get_tooltip_text() + "\n拖动可调整服务器顺序；右键编辑服务器")
+            row.set_tooltip_text(row.get_tooltip_text() + "\n拖动可调整服务器顺序；右键管理服务器")
 
     def server_updated(self, alias):
         if self.files.panel.endpoint and self.files.panel.endpoint.server_id == alias:
@@ -1357,10 +1357,13 @@ class Window(Gtk.ApplicationWindow):
         item = Gtk.MenuItem(label="编辑服务器")
         item.connect("activate", lambda *_: self.edit_dialog(alias))
         menu.append(item)
+        remove = Gtk.MenuItem(label="移除服务器")
+        remove.connect("activate", lambda *_: self.remove_alias(alias))
+        menu.append(remove)
         duplicate = Gtk.MenuItem(label="复制服务器")
         duplicate.connect("activate", lambda *_: self.duplicate_alias(alias))
         menu.append(duplicate)
-        files = Gtk.MenuItem(label="浏览文件（SFTP）")
+        files = Gtk.MenuItem(label="浏览服务器文件")
         files.connect("activate", lambda *_: self.files.show_server(alias))
         menu.append(files)
         menu.attach_to_widget(self.server_list, None)
@@ -1501,9 +1504,9 @@ class Window(Gtk.ApplicationWindow):
             return
         session.dispose()
 
-    def remove_alias(self):
-        alias = self.current
-        if not alias:
+    def remove_alias(self, alias=None):
+        alias = alias if alias is not None else self.current
+        if not alias or alias not in self.aliases:
             return
         if self.files.manager.active(alias):
             self.info("文件传输尚未结束", "请先在传输队列取消或等待此服务器的任务，再移除服务器。")
@@ -1525,20 +1528,25 @@ class Window(Gtk.ApplicationWindow):
                         GLib.idle_add(self.info, "钥匙环条目未移除",
                                       "请在系统“密码和密钥”中移除 zTerm · " + profile["name"] + "。")
             threading.Thread(target=clear_secret, daemon=True).start()
-        # Deselect before removing the row: GTK may otherwise select a neighbour.
-        self.server_list.unselect_all()
-        self.current = None
-        self.files.select_server(None)
+        removing_current = alias == self.current
+        if removing_current:
+            # Deselect first so GTK does not select and connect a neighbour.
+            self.server_list.unselect_all()
+            self.current = None
+            self.files.select_server(None)
+        elif self.files.panel.endpoint and self.files.panel.endpoint.server_id == alias:
+            self.files.select_server(self.current)
         self.rows.pop(alias).destroy()
         if notebook:
             for session in sessions:
                 session.dispose()
             notebook.panel.destroy()
             del self.groups[alias]
-        self.stack.set_visible_child_name("welcome")
-        self.edit_button.set_sensitive(False)
-        self.duplicate_button.set_sensitive(False)
-        self.remove_button.set_sensitive(False)
+        if removing_current:
+            self.stack.set_visible_child_name("welcome")
+            self.edit_button.set_sensitive(False)
+            self.duplicate_button.set_sensitive(False)
+            self.remove_button.set_sensitive(False)
         self.update_server_title()
         self.render_quota()
         self.render_status()

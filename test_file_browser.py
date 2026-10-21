@@ -53,7 +53,7 @@ class FileBrowserTests(unittest.TestCase):
         self.assertFalse(self.files.panel.get_visible())
         menu = self.window.server_context_menu("server-a")
         next(item for item in menu.get_children()
-             if item.get_label() == "浏览文件（SFTP）").activate()
+             if item.get_label() == "浏览服务器文件").activate()
         menu.destroy()
         pump_until(lambda: self.files.panel.location == str(self.root / "server-a"))
         self.assertIsNone(self.window.current)
@@ -296,6 +296,15 @@ class FileBrowserTests(unittest.TestCase):
             self.window.remove_alias()
             info.assert_called_once()
         self.assertIn("server-a", self.window.aliases)
+        menu = self.window.server_context_menu("server-a")
+        try:
+            with patch.object(self.window, "info") as info:
+                next(item for item in menu.get_children()
+                     if item.get_label() == "移除服务器").activate()
+                info.assert_called_once()
+            self.assertIn("server-a", self.window.aliases)
+        finally:
+            menu.destroy()
         with patch.object(self.window, "confirm", return_value=False):
             self.assertTrue(self.window.close_window())
         self.assertFalse(self.files.manager.closed)
@@ -303,6 +312,58 @@ class FileBrowserTests(unittest.TestCase):
         self.window.close_window()
         self.assertTrue(self.files.manager.closed)
         self.assertTrue(job.cancelled.is_set())
+
+    def test_context_removal_targets_clicked_server_and_preserves_current(self):
+        for alias in ("server-a", "server-b"):
+            self.window.server_list.select_row(self.window.rows[alias])
+            pump_until(lambda: self.window.current_session().alive)
+        other = self.window.groups["server-a"].get_nth_page(0)
+        current = self.window.current_session()
+        current_pid = current.pid
+        self.listing("server-a")
+        menu = self.window.server_context_menu("server-a")
+        try:
+            remove = next(item for item in menu.get_children()
+                          if item.get_label() == "移除服务器")
+            with patch.object(self.window, "confirm", return_value=False) as confirm:
+                remove.activate()
+                self.assertIn("server-a", confirm.call_args.args[1])
+            self.assertIn("server-a", self.window.aliases)
+            self.assertTrue(other.alive)
+            with patch.object(self.window, "persist", return_value=False):
+                remove.activate()
+            self.assertIn("server-a", self.window.aliases)
+            self.assertTrue(other.alive)
+            remove.activate()
+            pump_until(lambda: not Path(f"/proc/{other.pid}").exists())
+            self.assertEqual(self.window.aliases, ["server-b"])
+            self.assertEqual(self.window.store.load(), ["server-b"])
+            self.assertNotIn("server-a", self.window.rows)
+            self.assertNotIn("server-a", self.window.groups)
+            self.assertEqual(self.window.current, "server-b")
+            self.assertIs(self.window.server_list.get_selected_row(), self.window.rows["server-b"])
+            self.assertIs(self.window.current_session(), current)
+            self.assertEqual(current.pid, current_pid)
+            self.assertTrue(current.alive)
+            self.assertEqual(self.files.panel.endpoint.server_id, "server-b")
+            self.assertTrue(self.window.remove_button.get_sensitive())
+            self.assertIs(self.window.stack.get_visible_child(), self.window.groups["server-b"].panel)
+            # A stale menu activation must not fall back to the selected server.
+            remove.activate()
+            self.assertEqual(self.window.aliases, ["server-b"])
+        finally:
+            menu.destroy()
+        menu = self.window.server_context_menu("server-b")
+        try:
+            next(item for item in menu.get_children()
+                 if item.get_label() == "移除服务器").activate()
+            self.assertEqual(self.window.aliases, [])
+            self.assertIsNone(self.window.current)
+            self.assertIsNone(self.files.panel.endpoint)
+            self.assertFalse(self.window.remove_button.get_sensitive())
+            self.assertEqual(self.window.stack.get_visible_child_name(), "welcome")
+        finally:
+            menu.destroy()
 
     def test_file_name_dialog_is_independent_and_rejects_path_traversal(self):
         accepted = []
