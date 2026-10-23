@@ -24,7 +24,7 @@ install -d "$app_dir/backgrounds"
 install -m 644 "$source_dir/backgrounds/zterm-mist-light.png" \
     "$source_dir/backgrounds/zterm-mist-dark.png" "$source_dir/backgrounds/generation-prompts.json" \
     "$app_dir/backgrounds/"
-install -m 644 "$source_dir/README.md" "$source_dir/HELP.txt" "$source_dir/THEME_SOURCES.txt" \
+install -m 644 "$source_dir/README.md" "$source_dir/CHANGELOG.md" "$source_dir/HELP.txt" "$source_dir/THEME_SOURCES.txt" \
     "$source_dir/LICENSE" "$source_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/"
 cat "$source_dir/THIRD_PARTY_NOTICES.txt" "$source_dir/LICENSE" > "$doc_dir/copyright"
 install -m 644 "$source_dir/workbench.svg" \
@@ -64,7 +64,7 @@ Homepage: https://github.com/zhou411X/zterm
 Description: zTerm terminal with grouped SSH sessions
  Independent local and SSH terminal with a collapsible server sidebar,
  per-server session tabs, SFTP file transfers, diagnostic logs,
- configurable fonts, fourteen named color themes and image backgrounds.
+ configurable fonts, thirty named color themes and image backgrounds.
 CONTROL
 # dpkg records root ownership; the staging directory remains user-owned.
 install -d "$source_dir/dist"

@@ -79,7 +79,7 @@ class ModelTests(unittest.TestCase):
             "gnome-green-on-black": ("#00ff00", "#000000"),
             "ubuntu-default": ("#ffffff", "#300a24"),
         }
-        self.assertEqual(len(THEMES), 14)
+        self.assertEqual(len(THEMES), 30)
         self.assertTrue({"classic", "dark", "light", "ocean"}.isdisjoint(THEMES))
         for name, (fg, bg) in expected.items():
             self.assertEqual((THEMES[name]["foreground"], THEMES[name]["background"]), (fg, bg))

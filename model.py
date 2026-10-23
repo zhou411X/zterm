@@ -192,7 +192,7 @@ THEMES = {
            ("gnome-gray-on-black", "黑底灰字", "#aaaaaa", "#000000"),
            ("gnome-white-on-black", "黑底白字", "#ffffff", "#000000"),
            ("gnome-green-on-black", "黑底绿字", "#00ff00", "#000000"),
-           ("ubuntu-default", "Ubuntu 默认（李子色）", "#ffffff", "#300a24"),
+           ("ubuntu-default", "Ubuntu 默认", "#ffffff", "#300a24"),
        )},
     "solarized-light": {
         "name": "Solarized Light", "foreground": "#657b83", "background": "#fdf6e3", "cursor": "#657b83",
@@ -236,6 +236,87 @@ THEMES = {
         "name": "Peaksea Dark", "foreground": "#d0d0d0", "background": "#202020", "cursor": "#00f000",
         "palette": ["#202020", "#f08060", "#60f080", "#e0c060", "#c0d8f8", "#f0c0f0", "#80c0e0", "#d0d0d0",
                     "#d0d090", "#f08060", "#60f080", "#e0c060", "#c0d8f8", "#f0c0f0", "#80c0e0", "#d0d0d0"],
+    },
+    # Local Vim RGB snapshots; see THEME_SOURCES.txt for the ANSI mapping.
+    "monokai": {
+        "name": "Monokai", "foreground": "#e8e8e3", "background": "#272822", "cursor": "#e8e8e3",
+        "palette": ["#272822", "#e73c50", "#a6e22d", "#e6db74", "#66d9ef", "#ae81ff", "#a1efe4", "#e8e8e3",
+                    "#64645e", "#f92772", "#9ec400", "#e7c547", "#7aa6da", "#b77ee0", "#54ced6", "#ffffff"],
+    },
+    "ayu-light": {
+        "name": "Ayu Light", "foreground": "#5c6166", "background": "#fcfcfc", "cursor": "#f29718",
+        "palette": ["#fcfcfc", "#e65050", "#86b300", "#a37acc", "#eba400", "#fa8532", "#4cbf99", "#5c6166",
+                    "#adaeb1", "#e65050", "#86b300", "#a37acc", "#eba400", "#fa8532", "#4cbf99", "#5c6166"],
+    },
+    "ayu-dark": {
+        "name": "Ayu Dark", "foreground": "#bfbdb6", "background": "#10141c", "cursor": "#e6b450",
+        "palette": ["#10141c", "#d95757", "#aad94c", "#d2a6ff", "#ffb454", "#ff8f40", "#95e6cb", "#bfbdb6",
+                    "#5a6673", "#d95757", "#aad94c", "#d2a6ff", "#ffb454", "#ff8f40", "#95e6cb", "#bfbdb6"],
+    },
+    "ayu-mirage": {
+        "name": "AyuMirage", "foreground": "#cccac2", "background": "#242936", "cursor": "#ffcc66",
+        "palette": ["#242936", "#ff6666", "#d5ff80", "#dfbfff", "#ffcd66", "#ffa659", "#95e6cb", "#cccac2",
+                    "#6e7c8f", "#ff6666", "#d5ff80", "#dfbfff", "#ffcd66", "#ffa659", "#95e6cb", "#cccac2"],
+    },
+    "breadog": {
+        "name": "Breadog", "foreground": "#362c24", "background": "#f1ebe6", "cursor": "#362c24",
+        "palette": ["#f1ebe6", "#b10b00", "#007232", "#9a5500", "#005cb4", "#9b0097", "#006a78", "#362c24",
+                    "#736354", "#b10b00", "#007232", "#9a5500", "#005cb4", "#9b0097", "#006a78", "#362c24"],
+    },
+    "clawbeige-light": {
+        "name": "ClawBeige Light", "foreground": "#2c2420", "background": "#f8f8f6", "cursor": "#c15f3c",
+        "palette": ["#f8f8f6", "#c13c3c", "#7a5a20", "#a04a20", "#6a4a90", "#c15f3c", "#c15f3c", "#2c2420",
+                    "#a89888", "#c13c3c", "#7a5a20", "#a04a20", "#6a4a90", "#c15f3c", "#c15f3c", "#2c2420"],
+    },
+    "clawbeige-dark": {
+        "name": "ClawBeige Dark", "foreground": "#e8e6e3", "background": "#2c2620", "cursor": "#c15f3c",
+        "palette": ["#2c2620", "#ff6b6b", "#d4a96a", "#e8a87c", "#d4b483", "#c15f3c", "#e8a87c", "#e8e6e3",
+                    "#6a6158", "#ff6b6b", "#d4a96a", "#e8a87c", "#d4b483", "#c15f3c", "#e8a87c", "#e8e6e3"],
+    },
+    "dragonbeige": {
+        "name": "DragonBeige", "foreground": "#4a3b32", "background": "#f5f0e6", "cursor": "#8b5a2b",
+        "palette": ["#f5f0e6", "#0501ff", "#5a7247", "#7a4c65", "#94422e", "#9c5d27", "#b35900", "#4a3b32",
+                    "#9a8c7e", "#0501ff", "#5a7247", "#7a4c65", "#94422e", "#9c5d27", "#b35900", "#4a3b32"],
+    },
+    "faulty-schematics": {
+        "name": "FaultySchematics", "foreground": "#262013", "background": "#dcdad7", "cursor": "#ff4f00",
+        "palette": ["#dcdad7", "#b51f1f", "#7f7f91", "#9a8f7e", "#6d5c39", "#8c7649", "#ff4f00", "#262013",
+                    "#61616e", "#b51f1f", "#7f7f91", "#9a8f7e", "#6d5c39", "#8c7649", "#ff4f00", "#262013"],
+    },
+    "nightowl-light": {
+        "name": "NightOwl Light", "foreground": "#403f53", "background": "#fbfbfb", "cursor": "#90a7b2",
+        "palette": ["#fbfbfb", "#ff2c83", "#4876d6", "#4876d6", "#4876d6", "#994cc3", "#aa0982", "#403f53",
+                    "#989fb1", "#ff2c83", "#4876d6", "#4876d6", "#4876d6", "#994cc3", "#aa0982", "#403f53"],
+    },
+    "nightowl-dark": {
+        "name": "NightOwl Dark", "foreground": "#d6deeb", "background": "#011627", "cursor": "#80a4c2",
+        "palette": ["#011627", "#ffffff", "#ecc48d", "#82aaff", "#82aaff", "#c792ea", "#f78c6c", "#d6deeb",
+                    "#637777", "#ffffff", "#ecc48d", "#82aaff", "#82aaff", "#c792ea", "#f78c6c", "#d6deeb"],
+    },
+    "retrotheme": {
+        "name": "RetroTheme", "foreground": "#ffffff", "background": "#141212", "cursor": "#ffffff",
+        "palette": ["#141212", "#f8f8f0", "#fefa44", "#d63956", "#00cc74", "#25bffb", "#71328c", "#ffffff",
+                    "#535654", "#f8f8f0", "#fefa44", "#d63956", "#00cc74", "#25bffb", "#71328c", "#ffffff"],
+    },
+    "tokyonight-light": {
+        "name": "TokyoNight Light", "foreground": "#343b59", "background": "#e6e7ed", "cursor": "#363c4d",
+        "palette": ["#e6e7ed", "#942f2f", "#385f0d", "#965027", "#2959aa", "#65359d", "#363c4d", "#343b59",
+                    "#888b94", "#942f2f", "#385f0d", "#965027", "#2959aa", "#65359d", "#363c4d", "#343b59"],
+    },
+    "tokyonight-dark": {
+        "name": "TokyoNight Dark", "foreground": "#a9b1d6", "background": "#1a1b26", "cursor": "#c0caf5",
+        "palette": ["#1a1b26", "#ff5370", "#9ece6a", "#ff9e64", "#7aa2f7", "#bb9af7", "#89ddff", "#a9b1d6",
+                    "#51597d", "#ff5370", "#9ece6a", "#ff9e64", "#7aa2f7", "#bb9af7", "#89ddff", "#a9b1d6"],
+    },
+    "tokyonight-storm": {
+        "name": "TokyoNight Storm", "foreground": "#a9b1d6", "background": "#24283b", "cursor": "#c0caf5",
+        "palette": ["#24283b", "#ff5370", "#9ece6a", "#ff9e64", "#7aa2f7", "#bb9af7", "#89ddff", "#a9b1d6",
+                    "#5f6996", "#ff5370", "#9ece6a", "#ff9e64", "#7aa2f7", "#bb9af7", "#89ddff", "#a9b1d6"],
+    },
+    "vintage-light": {
+        "name": "VintageLight", "foreground": "#000000", "background": "#ffffff", "cursor": "#316ac5",
+        "palette": ["#ffffff", "#cd3131", "#a31515", "#0000ff", "#000000", "#0000ff", "#0000ff", "#000000",
+                    "#666666", "#cd3131", "#a31515", "#0000ff", "#000000", "#0000ff", "#0000ff", "#000000"],
     },
 }
 

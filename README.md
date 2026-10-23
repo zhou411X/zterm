@@ -2,7 +2,7 @@
 
 zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE 的独立终端应用，支持本地终端与按服务器分组的 SSH 会话。
 
-[下载 deb 安装包](https://github.com/zhou411X/zterm/releases/latest) · [GPL-3.0 许可证](LICENSE)
+[下载 deb 安装包](https://github.com/zhou411X/zterm/releases/latest) · [更新记录](CHANGELOG.md) · [GPL-3.0 许可证](LICENSE)
 
 - 添加服务器时填写显示别名、IP、用户名、密码和端口（默认 22）；侧栏和窗口标题显示别名。密码存入系统钥匙环，留空使用密钥登录。
 - 左侧栏按钮或右键服务器 →“编辑服务器”可修改别名、IP、用户名、密码和端口；密码留空保留原密码，也可清除已保存密码。连接信息用于新会话或重新连接，现有连接继续运行。
@@ -17,54 +17,13 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - 左右侧栏顶部各有一个图标，点击展开或收起；收起后保留窄图标栏。文件栏每次启动默认收起，拖动分隔线调宽，重新展开保留本次窗口宽度。
 - 外观设置支持背景不透明度、背景图片、图片强度及图片毛玻璃；文字保持清晰，可选择是否把图片同时应用到终端。
 - SFTP 文件面板支持浏览、文件/目录上传下载、拖入上传、新建目录、重命名和删除文件/空目录；后台队列支持进度、取消、重试及同名处理。
-- 应用界面主题覆盖标题栏、侧栏、标签、底栏和菜单；可跟随终端配色、独立搭配 14 套明暗配色，或跟随系统外观，支持预览、取消恢复及保存。
+- 应用界面主题覆盖标题栏、侧栏、标签、底栏和菜单；可跟随终端配色、独立搭配 30 套明暗配色，或跟随系统外观，支持预览、取消恢复及保存。
 - Solarized、Gruvbox、PaperColor、Peaksea 的 Light / Dark 配色及 ANSI 16 色调色板。
 - Gruvbox、PaperColor、Peaksea 的普通/亮 ANSI 色采用本地 Vim 主题的主要语法高亮 RGB；具体着色位置仍由命令程序决定。
+- 支持 Monokai、Ayu Light / Dark、AyuMirage、Breadog、ClawBeige Light / Dark、DragonBeige、FaultySchematics、NightOwl Light / Dark、RetroTheme、TokyoNight Light / Dark / Storm 和 VintageLight；终端与界面均可选择。
 - PaperColor 额外适配截图中默认 Vim 的注释/语句色槽及 256 色索引 81、121；这是调色板近似，不替代 Vim 的语法主题规则。
-- 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认（李子色），共 14 套主题。
+- 六套 GNOME Terminal / Ubuntu 配色：浅黄背景黑字、白底黑字、黑底灰字、黑底白字、黑底绿字、Ubuntu 默认；连同上述 Vim 配色共 30 套主题。
 - 圆角羽毛应用图标和独立桌面启动入口；配置在重启后保留，不自动重连服务器。
-
-## v0.2.9 更新
-
-- 优化终端底部留白：VTE 0.76 及以上将完整字符行贴底显示，不足一行的像素余量留在顶部，不改变字号或完整行数；旧版 VTE 保持默认对齐。
-- “设置”新增“关于 zTerm”，显示当前运行版本；关于窗口可重复打开，打开期间终端仍可操作。
-- 新增统一版本文件 `VERSION`，源码安装与 deb 均携带版本信息；显式指定打包版本时，关于窗口显示实际包版本。
-- 沿用原生 Wayland、现有服务器列表、凭据及外观配置；升级后重启应用以加载新版。
-
-### v0.2.8 更新
-
-- 服务器 IP/别名的右键菜单增加“移除服务器”，顺序为“编辑服务器 → 移除服务器 → 复制服务器 → 浏览服务器文件”，去除文件菜单中的“（SFTP）”提示。
-- 右键移除绑定所点击的服务器；移除其他服务器时，当前终端页面和连接保持运行。
-- 沿用活动会话确认、未完成文件任务阻止移除、保存失败保留配置及钥匙环清理机制。
-
-### v0.2.7 更新
-
-- 修复 SFTP 上传选择窗口隐藏确认按钮、阻塞主窗口输入的问题；改为非模态异步对话框，保持任务目标不随服务器切换而改变。
-- 左右侧栏顶部各提供展开/收起图标，收起后只留窄图标栏；文件栏固定在右侧、默认关闭，进度队列保留在栏内。
-- 外观设置新增背景透明度、背景图片、图片强度与图片模糊，可选择是否应用到终端；随包附带浅色和深色背景图。
-- 默认使用 GTK 原生显示后端，避免强制 XWayland 在分数缩放下造成字体发虚；Wayland 窗口位置由桌面决定，X11 下请求初始居中。
-- 调整 PaperColor 的 ANSI 与部分 256 色槽，使指定 Vim 语法颜色更接近；仍不替代 Vim 语法规则。
-- 新增私有轮转日志、异常与主循环卡顿诊断，可从“设置 → 诊断日志”查看路径。
-- deb 新增 `python3-gi-cairo`、`python3-cairo`、`python3-pil` 依赖；沿用现有配置和凭据。
-
-### v0.2.6 更新
-
-- 新增 SFTP 文件面板：浏览目录、上传/下载文件和目录、新建目录、重命名、删除文件或空目录。
-- 点击“上传”后双击单个本地文件即可上传，也支持多选和拖入上传；传输队列位于文件面板底部，不占终端高度。
-- 传输支持进度、取消、重试和同名处理；收起面板或切换服务器后继续传输。
-- 标签显示当前活动内容与 Codex 标记，固定宽度，长标题省略并可悬停查看。
-- Gruvbox、PaperColor、Peaksea 的 ANSI 用色对齐 Vim 主题主要语法色；外观设置窗口可独立移动和缩放。
-- 服务器栏底部依次提供添加、编辑、复制、移除；包含 PR #9 的服务器复制和 SSH 保活（默认 60 秒）功能。
-- deb 新增 `python3-paramiko` 依赖；原有服务器配置、外观设置和钥匙环凭据继续沿用。
-
-### v0.2.5 更新
-
-- 添加和编辑服务器使用独立窗口，可单独移动、缩放，主终端继续操作。
-- 左侧服务器支持拖拽排序，顺序自动保存，已有连接保持运行。
-- 右键服务器可修改别名、IP、用户名、密码和端口；旧条目自动读取原 SSH 连接信息。
-- 编辑时密码留空保留原密码，可显式清除；更新失败时保留原配置和密码。
-- 连接信息修改后用于新会话和重连，Codex 额度刷新为新连接对应账号。
-- 羽毛图标改为透明圆角。
 
 ## 安装已发布的 deb 包（推荐）
 
@@ -72,17 +31,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.9_all.deb`，进入下载目录后安装：
+`zterm_0.2.10_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.9_all.deb
+sudo apt install ./zterm_0.2.10_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.9_all.deb
+sudo dpkg -i ./zterm_0.2.10_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -145,10 +104,10 @@ sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
 /usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.9_all.deb
+sudo apt install ./dist/zterm_0.2.10_all.deb
 ```
 
-默认版本取自源码中的 `VERSION` 文件，也可通过 `sh build_deb.sh 0.2.9` 显式指定版本。
+默认版本取自源码中的 `VERSION` 文件，也可通过 `sh build_deb.sh 0.2.10` 显式指定版本。
 “设置 → 关于 zTerm”显示当前运行版本；deb 中的显示版本与打包时指定的版本一致。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
@@ -261,7 +220,7 @@ GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_background.py
 测试涵盖独立服务器表单、右键编辑、侧栏排序持久化、旧配置兼容、密码保留/替换/清除及失败回滚、
 异步保存期间的关闭/删除/重名处理、旧账号额度结果丢弃、askpass 目标匹配、SSH 用户/IP/端口覆盖、
 配置保存、PTY 输入输出、会话切换和回收、外观保存恢复，
-以及 14 套主题的实际 ANSI/前景/背景色块渲染、旧主题配置迁移、界面主题预览/保存/窗口隔离、标签布局/排序/溢出滚动、重排编号与 Alt 快捷键对应和统一底栏状态/重连。
+以及 30 套主题的实际 ANSI/前景/背景色块渲染、旧主题配置迁移、界面主题预览/保存/窗口隔离、标签布局/排序/溢出滚动、重排编号与 Alt 快捷键对应和统一底栏状态/重连。
 “在线”依据当前会话进程状态；真实 SSH 断网场景尚未验证。
 截图是测试生成物，不纳入版本控制。
 SFTP 测试使用临时目录和本机 SFTP 子系统；安装 openssh-server 后还会验证仅监听回环地址的
