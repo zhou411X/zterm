@@ -6,7 +6,7 @@ app_dir="$data_dir/ssh-workbench"
 bin_dir="$HOME/.local/bin"
 icon_dir="$data_dir/icons/hicolor"
 install -d "$app_dir" "$data_dir/applications" "$bin_dir" "$icon_dir/scalable/apps"
-install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/quota.py" \
+install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/preferences.py" "$source_dir/quota.py" \
     "$source_dir/file_browser.py" "$source_dir/transfer.py" "$source_dir/diagnostics.py" "$source_dir/background.py" \
     "$source_dir/HELP.txt" "$source_dir/THEME_SOURCES.txt" "$source_dir/workbench.svg" \
     "$source_dir/LICENSE" "$source_dir/THIRD_PARTY_NOTICES.txt" "$source_dir/VERSION" "$app_dir/"

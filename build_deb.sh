@@ -15,7 +15,7 @@ app_dir="$stage/usr/share/ssh-workbench"
 doc_dir="$stage/usr/share/doc/zterm"
 install -d "$stage/DEBIAN" "$stage/usr/bin" "$app_dir" "$doc_dir" \
     "$stage/usr/share/applications" "$stage/usr/share/icons/hicolor/scalable/apps"
-install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/quota.py" \
+install -m 644 "$source_dir/app.py" "$source_dir/model.py" "$source_dir/preferences.py" "$source_dir/quota.py" \
     "$source_dir/file_browser.py" "$source_dir/transfer.py" "$source_dir/diagnostics.py" "$source_dir/background.py" \
     "$source_dir/workbench.svg" "$app_dir/"
 install -m 755 "$source_dir/credentials.py" "$app_dir/"

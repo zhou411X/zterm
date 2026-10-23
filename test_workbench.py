@@ -1629,7 +1629,7 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.groups, {}, "Startup must not connect automatically")
                 menu_items = window.settings_menu.get_children()
                 self.assertEqual([item.get_label() for item in menu_items],
-                                 ["快捷键", "外观设置", "订阅额度", "诊断日志", "关于 zTerm"])
+                                 ["快捷键", "外观设置", "终端设置", "订阅额度", "诊断日志", "关于 zTerm"])
                 for item, method in zip(menu_items[:1], ("show_shortcuts",)):
                     with patch.object(window, method) as action:
                         item.activate()

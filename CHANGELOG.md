@@ -1,5 +1,12 @@
 # 更新记录
 
+## v0.2.11（2026-10-23）
+
+- 右上角新增终端搜索：高亮当前匹配，支持忽略大小写和前后查找，可搜索保留的滚动历史。
+- 终端设置支持修改滚动缓冲区，默认 9999 行；关闭终端响铃。
+- 快捷键支持编辑、清除、冲突检查和恢复默认，保存后立即生效并在重启后保留。
+- 搜索采用 VTE 原生按行查找，同一行内的重复匹配不会逐个跳转。
+
 ## v0.2.10（2026-10-23）
 
 - 新增 16 套本地 Vim 配色，终端与界面均可选择，预设总数由 14 套增至 30 套：Monokai；Ayu Light / Dark；AyuMirage；Breadog；ClawBeige Light / Dark；DragonBeige；FaultySchematics；NightOwl Light / Dark；RetroTheme；TokyoNight Light / Dark / Storm；VintageLight。

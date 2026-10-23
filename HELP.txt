@@ -4,7 +4,7 @@ zTerm
 命令行：~/.local/bin/zterm
 旧命令 ssh-workbench 仍可使用，原有服务器列表和外观配置继续保留。
 
-左侧服务器栏底部依次为“添加服务器”“编辑服务器”“复制服务器”“移除服务器”；标题栏右上角“设置”包含“快捷键”“外观设置”“订阅额度”“诊断日志”“关于 zTerm”。
+左侧服务器栏底部依次为“添加服务器”“编辑服务器”“复制服务器”“移除服务器”；标题栏右上角“设置”包含“快捷键”“外观设置”“终端设置”“订阅额度”“诊断日志”“关于 zTerm”。
 “关于 zTerm”显示当前运行版本，打开期间终端仍可操作；升级后重启应用才能加载新版本。
 点击“添加服务器”填写显示别名、IP 地址、用户名、密码和端口（默认 22）。
 添加窗口可独立移动和缩放，填写期间主终端仍可操作；重复点击会唤回已有窗口。
@@ -119,7 +119,24 @@ SSH 连接使用 /usr/bin/ssh，优先使用密钥，保存过密码时再通过
 外观配置：${XDG_CONFIG_HOME:-~/.config}/ssh-workbench/appearance.json
 程序文件：${XDG_DATA_HOME:-~/.local/share}/ssh-workbench/
 
+终端搜索与滚动：
+标题栏右上角的搜索按钮（默认 Ctrl+Shift+F）搜索当前会话，包括缓冲区中保留的历史。
+输入普通文本，当前匹配高亮并滚动到可见位置；“上一个/下一个”循环查找。
+使用 VTE 原生按行搜索；同一行的重复匹配不会逐个跳转。
+Enter 查找下一个，Shift+Enter 查找上一个，Esc 或“关闭”退出搜索并清除高亮。
+“忽略大小写”控制大小写匹配；搜索只作用于当前标签，切换会话后在新会话中查找。
+已被缓冲区淘汰的历史无法搜索；程序自行绘制的全屏界面可能不保留滚动历史。
+“设置 → 终端设置”可调整滚动缓冲区行数，默认 9999，允许 0–1000000 行。
+0 表示不保留滚动历史。保存后应用到已有与新建会话；减少行数会丢弃超出的历史。
+终端响铃关闭。设置保存在配置目录的 terminal.json，独立于外观和服务器列表。
+
 快捷键：
+“设置 → 快捷键”可修改以下所有绑定（含每个 Alt+数字标签快捷键）以及终端搜索。
+点击快捷键单元格后按新组合键；Backspace 清除绑定，Esc 取消录入。
+只允许 Ctrl/Alt/Super 组合键或功能键；重复绑定会提示冲突并保留原值。
+“恢复默认”重置编辑内容，“保存并应用”才生效并持久化，“取消”不改变当前设置。
+以下为默认绑定：
+Ctrl+Shift+F             搜索终端内容
 Ctrl+Shift+T             新会话
 Ctrl+Shift+W             关闭当前会话
 Ctrl+Shift+C / V         复制 / 粘贴
@@ -139,10 +156,10 @@ Codex：服务器需安装 codex CLI 并使用订阅账号登录；仅调用官�
 工作台不读取或传输 Codex 登录凭据，不会修改远端 CLI 配置。
 
 开发验证：
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py test_workbench.py test_quota.py test_credentials.py
+/usr/bin/python3 -m py_compile app.py model.py preferences.py credentials.py quota.py test_workbench.py test_quota.py test_credentials.py
 /usr/bin/python3 test_credentials.py
 /usr/bin/python3 test_quota.py
-GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_workbench.py
+GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 -m unittest test_workbench test_preferences
 
 依赖：python3-gi、gir1.2-gtk-3.0、gir1.2-vte-2.91、gir1.2-secret-1、openssh-client。
 保存密码需要桌面钥匙环服务，如 gnome-keyring。

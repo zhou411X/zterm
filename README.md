@@ -13,6 +13,9 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 - 标签编号始终按从左到右的位置更新，拖拽或关闭后连续排列；`Alt+1 … 9` 对应显示编号。
 - 窗口标题随当前服务器切换；统一底栏左侧显示服务器与当前会话状态，离线后可直接重连，中间显示 Codex 订阅额度。
 - 设置字体、字号、文字、背景及光标颜色，预览后保存并应用到所有会话。
+- 右上角搜索当前终端与保留的历史，支持当前匹配高亮、上/下一个及忽略大小写；默认快捷键 Ctrl+Shift+F。
+- “设置 → 终端设置”调整滚动缓冲区，默认 9999 行，保存后作用于已有与新会话；终端响铃关闭。
+- “设置 → 快捷键”可编辑、清除或恢复默认快捷键，冲突检查通过后保存生效。
 - 主窗口和外观设置窗口在 X11 下请求初始居中，Wayland 下由桌面决定位置；外观设置为独立窗口，可单独移动和缩放，重复打开保留当前预览。
 - 左右侧栏顶部各有一个图标，点击展开或收起；收起后保留窄图标栏。文件栏每次启动默认收起，拖动分隔线调宽，重新展开保留本次窗口宽度。
 - 外观设置支持背景不透明度、背景图片、图片强度及图片毛玻璃；文字保持清晰，可选择是否把图片同时应用到终端。
@@ -31,17 +34,17 @@ zterm 项目的应用显示名为 **zTerm**，是基于 Python、GTK 3 和 VTE �
 需要图形桌面环境；其他 Debian / Ubuntu 版本尚未逐一验证。
 
 从 [Releases](https://github.com/zhou411X/zterm/releases) 下载
-`zterm_0.2.10_all.deb`，进入下载目录后安装：
+`zterm_0.2.11_all.deb`，进入下载目录后安装：
 
 ```sh
-sudo apt install ./zterm_0.2.10_all.deb
+sudo apt install ./zterm_0.2.11_all.deb
 /usr/bin/zterm
 ```
 
 也支持 `dpkg -i`；如果提示缺少依赖，随后用 apt 补齐：
 
 ```sh
-sudo dpkg -i ./zterm_0.2.10_all.deb
+sudo dpkg -i ./zterm_0.2.11_all.deb
 # 仅当上一步报告缺少依赖时执行：
 sudo apt --fix-broken install
 ```
@@ -102,12 +105,12 @@ deb 包名从 `ssh-workbench` 改为 `zterm`，安装新版时替换旧包。
 ```sh
 sudo apt install dpkg
 # Python 语法编译检查；不会生成本机架构专用的可执行程序。
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
+/usr/bin/python3 -m py_compile app.py model.py preferences.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py
 sh build_deb.sh
-sudo apt install ./dist/zterm_0.2.10_all.deb
+sudo apt install ./dist/zterm_0.2.11_all.deb
 ```
 
-默认版本取自源码中的 `VERSION` 文件，也可通过 `sh build_deb.sh 0.2.10` 显式指定版本。
+默认版本取自源码中的 `VERSION` 文件，也可通过 `sh build_deb.sh 0.2.11` 显式指定版本。
 “设置 → 关于 zTerm”显示当前运行版本；deb 中的显示版本与打包时指定的版本一致。安装包为 `Architecture: all`，
 包含 Python 源码、桌面入口和图标，运行依赖由 apt 安装。
 系统版启动命令为 `/usr/bin/zterm`，程序放在 `/usr/share/ssh-workbench/`，
@@ -207,12 +210,12 @@ Codex 使用已登录 CLI 的官方 [account/rateLimits/read](https://learn.chat
 
 ```sh
 sudo apt install xvfb xauth openssh-sftp-server
-/usr/bin/python3 -m py_compile app.py model.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py test_workbench.py test_quota.py test_credentials.py test_transfer.py test_file_browser.py test_diagnostics.py test_background.py
+/usr/bin/python3 -m py_compile app.py model.py preferences.py credentials.py quota.py file_browser.py transfer.py diagnostics.py background.py test_workbench.py test_preferences.py test_quota.py test_credentials.py test_transfer.py test_file_browser.py test_diagnostics.py test_background.py
 /usr/bin/python3 test_credentials.py
 /usr/bin/python3 test_quota.py
 /usr/bin/python3 test_transfer.py
 /usr/bin/python3 test_diagnostics.py
-GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_workbench.py
+GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 -m unittest test_workbench test_preferences
 GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_file_browser.py
 GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 test_background.py
 ```
