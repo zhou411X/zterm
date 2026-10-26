@@ -1007,6 +1007,8 @@ class Window(Gtk.ApplicationWindow):
         self.files_toggle.set_tooltip_text("展开文件栏（SFTP）")
         self.set_titlebar(header)
         pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        # Keep the resize hit area out of the terminal's first character cell.
+        pane.set_wide_handle(True)
         self.pane = pane
         self.sidebar_width = 220
         pane.set_position(220)

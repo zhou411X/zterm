@@ -237,6 +237,37 @@ class ModelTests(unittest.TestCase):
 
 
 class TerminalTests(unittest.TestCase):
+    def test_first_terminal_column_receives_pointer_events(self):
+        from app import Window, Gtk, Gdk
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = AliasStore(Path(directory) / "servers.json")
+            store.save([])
+            window = Window(store=store, enable_quota=False,
+                            command_factory=lambda _: ["/bin/cat"])
+            window.confirm = lambda *_: True
+            try:
+                window.server_list.select_row(window.rows[""])
+                session = window.current_session()
+                terminal = session.terminal
+                pump_until(lambda: session.alive and terminal.get_allocated_width() > 1)
+                pointer = window.get_display().get_default_seat().get_pointer()
+                padding = terminal.get_style_context().get_padding(Gtk.StateFlags.NORMAL)
+                x, y = terminal.translate_coordinates(window, 0, 0)
+                _, root_x, root_y = window.get_window().get_origin()
+                for offset in range(terminal.get_char_width()):
+                    with self.subTest(offset=offset):
+                        pointer.warp(window.get_screen(), root_x + x + padding.left + offset,
+                                     root_y + y + terminal.get_allocated_height() // 2)
+                        window.get_display().sync()
+                        target, _, _ = pointer.get_window_at_position()
+                        event = Gdk.Event.new(Gdk.EventType.MOTION_NOTIFY)
+                        event.window = target
+                        self.assertIs(Gtk.get_event_widget(event), terminal)
+            finally:
+                window.close_window()
+                window.destroy()
+
     def test_terminal_grid_stays_at_bottom_without_clipping_or_mouse_offset(self):
         import cairo
         from app import Window, Gtk, Gdk, Pango, Vte
