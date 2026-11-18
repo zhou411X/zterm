@@ -179,7 +179,7 @@ LEGACY_THEME_MIGRATIONS = {
 }
 
 # RGB sources and ANSI adaptation details are recorded in THEME_SOURCES.txt.
-# Solarized follows the local Vim variant, including its experimental green.
+# Solarized uses VS Code's ANSI palette, shared by its light and dark themes.
 # Gruvbox/Peaksea use syntax highlight accents in ANSI 1–6 and 9–14.
 # PaperColor additionally adapts the default Vim slots seen in the user's
 # screenshots; a terminal palette cannot distinguish syntax groups sharing a slot.
@@ -196,12 +196,12 @@ THEMES = {
        )},
     "solarized-light": {
         "name": "Solarized Light", "foreground": "#657b83", "background": "#fdf6e3", "cursor": "#657b83",
-        "palette": ["#eee8d5", "#dc322f", "#719e07", "#b58900", "#268bd2", "#d33682", "#2aa198", "#073642",
-                    "#fdf6e3", "#cb4b16", "#93a1a1", "#839496", "#657b83", "#6c71c4", "#586e75", "#002b36"],
+        "palette": ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+                    "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"],
     },
     "solarized-dark": {
-        "name": "Solarized Dark", "foreground": "#839496", "background": "#002b36", "cursor": "#839496",
-        "palette": ["#073642", "#dc322f", "#719e07", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+        "name": "Solarized Dark", "foreground": "#839496", "background": "#002b36", "cursor": "#d30102",
+        "palette": ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
                     "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"],
     },
     "gruvbox-light": {

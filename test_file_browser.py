@@ -114,36 +114,41 @@ class FileBrowserTests(unittest.TestCase):
         self.assertAlmostEqual(pane.get_allocated_width() - pane.get_position(),
                                sidebar_width, delta=2)
 
-    def test_collapsed_docks_keep_only_their_top_icons(self):
+    def test_header_controls_remain_visible_when_docks_collapse(self):
         from app import SIDEBAR_RAIL_WIDTH
 
         window = self.window
         pump_until(lambda: window.get_mapped() and window.files_toggle.get_mapped())
-        self.assertIs(window.sidebar_toggle.get_parent(), window.server_dock)
-        self.assertIs(window.files_toggle.get_parent(), window.file_dock)
-        self.assertNotIn(window.sidebar_toggle, window.header.get_children())
-        self.assertNotIn(window.files_toggle, window.header.get_children())
+        for control in (window.sidebar_toggle, window.add_button, window.search_button,
+                        window.files_toggle, window.settings_button):
+            self.assertIs(control.get_parent(), window.header)
+        controls = (window.sidebar_toggle, window.add_button, window.search_button,
+                    window.files_toggle, window.settings_button)
+        positions = [control.translate_coordinates(window.header, 0, 0)[0] for control in controls]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(len(set(positions)), len(positions))
+        self.assertTrue(window.search_button.get_image().get_mapped())
         self.assertFalse(any(isinstance(child, Gtk.Label) and child.get_text() == "服务器"
                              for child in window.sidebar.get_children()))
         self.assertFalse(self.files.panel.get_visible())
         self.assertTrue(window.files_toggle.get_mapped())
         window.sidebar_toggle.clicked()
         pump_until(lambda: not window.sidebar.get_visible()
-                   and window.server_dock.get_allocated_width() == SIDEBAR_RAIL_WIDTH)
+                   and not window.server_dock.get_visible())
         window.show_all()
         self.assertFalse(window.sidebar.get_visible())
         self.assertFalse(self.files.panel.get_visible())
         for dock, toggle in ((window.server_dock, window.sidebar_toggle),
                              (window.file_dock, window.files_toggle)):
-            self.assertEqual([child for child in dock.get_children() if child.get_visible()], [toggle])
+            self.assertEqual([child for child in dock.get_children() if child.get_visible()], [])
             self.assertTrue(toggle.get_mapped())
-            self.assertEqual(dock.get_allocated_width(), SIDEBAR_RAIL_WIDTH)
+            self.assertFalse(dock.get_visible())
         # Dragging an empty rail must not leave a wide blank sidebar.
         window.pane.set_position(150)
         window.file_pane.set_position(window.file_pane.get_allocated_width() - 180)
         self.assertEqual(window.pane.get_position(), SIDEBAR_RAIL_WIDTH)
-        self.assertEqual(window.file_pane.get_allocated_width() - window.file_pane.get_position(),
-                         SIDEBAR_RAIL_WIDTH)
+        self.assertAlmostEqual(window.file_pane.get_allocated_width() - window.file_pane.get_position(),
+                               SIDEBAR_RAIL_WIDTH, delta=1)
         window.sidebar_toggle.clicked()
         window.files_toggle.clicked()
         pump_until(lambda: window.sidebar.get_mapped() and self.files.panel.get_mapped()
@@ -151,8 +156,6 @@ class FileBrowserTests(unittest.TestCase):
                    and window.file_dock.get_allocated_width() > SIDEBAR_RAIL_WIDTH)
         self.assertGreater(window.server_dock.get_allocated_width(), SIDEBAR_RAIL_WIDTH)
         self.assertGreater(window.file_dock.get_allocated_width(), SIDEBAR_RAIL_WIDTH)
-        self.assertLess(window.sidebar_toggle.get_allocation().y, window.sidebar.get_allocation().y)
-        self.assertLess(window.files_toggle.get_allocation().y, self.files.panel.get_allocation().y)
 
     def test_late_directory_response_cannot_replace_new_server(self):
         requests = []

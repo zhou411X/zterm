@@ -268,6 +268,70 @@ class TerminalTests(unittest.TestCase):
                 window.close_window()
                 window.destroy()
 
+    def test_terminal_search_history_literals_navigation_and_tab_isolation(self):
+        from types import SimpleNamespace
+        from app import Window, Gdk, Gtk, Vte
+
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(enable_quota=False, store=AliasStore(Path(directory) / "servers.json"),
+                            command_factory=lambda _: ["/bin/cat"])
+            window.confirm = lambda *_: True
+            try:
+                self.assertFalse(window.search_button.get_sensitive())
+                window.server_list.select_row(window.rows[""])
+                first = window.current_session()
+                pump_until(lambda: first.alive and first.terminal.get_mapped())
+                first.terminal.feed("HistoryOnly\r\nNeedle\r\nneedle\r\nNEEDLE\r\n中文.[x]\\E éÉ\r\n".encode())
+                pump_until(lambda: "HistoryOnly" in first.terminal.get_text_format(Vte.Format.TEXT))
+                first.terminal.feed(b"filler\r\n" * 120 + b"HISTORY_READY\r\n")
+                pump_until(lambda: "HISTORY_READY" in first.terminal.get_text_format(Vte.Format.TEXT))
+                window.search_button.clicked()
+                search = first.search_bar
+                pump_until(lambda: search.entry.has_focus())
+                for query, expected in (("HistoryOnly", "HistoryOnly"), ("中文.[x]\\E", "中文.[x]\\E"),
+                                        ("éé", "éÉ")):
+                    search.entry.set_text(query)
+                    pump_until(lambda: first.terminal.get_text_selected(Vte.Format.TEXT) == expected)
+                search.ignore_case.set_active(False)
+                search.entry.set_text("needle")
+                pump_until(lambda: first.terminal.get_text_selected(Vte.Format.TEXT) == "needle")
+                search.ignore_case.set_active(True)
+                matches = set()
+                for _ in range(4):
+                    search.find()
+                    matches.add(first.terminal.get_text_selected(Vte.Format.TEXT))
+                self.assertEqual(matches, {"Needle", "needle", "NEEDLE"})
+                search.key_pressed(search.entry, SimpleNamespace(keyval=Gdk.KEY_Return,
+                                   state=Gdk.ModifierType.SHIFT_MASK))
+                self.assertTrue(first.terminal.get_has_selection())
+                search.entry.set_text("no-such-output")
+                pump_until(lambda: search.result.get_text() == "未找到")
+                self.assertFalse(first.terminal.get_has_selection())
+                search.entry.set_text("")
+                pump_until(lambda: search.result.get_text() == "")
+                self.assertIsNone(first.terminal.search_get_regex())
+                search.entry.set_text("HistoryOnly")
+                pump_until(lambda: first.terminal.get_has_selection())
+                window.add_button.clicked()
+                second = window.current_session()
+                pump_until(lambda: second.alive)
+                self.assertFalse(second.search_bar.get_visible())
+                event = SimpleNamespace(keyval=Gdk.KEY_F,
+                                        state=Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
+                self.assertTrue(window.key_pressed(window, event))
+                self.assertTrue(second.search_bar.get_visible())
+                self.assertEqual(second.search_bar.entry.get_text(), "")
+                window.groups[""].set_current_page(0)
+                self.assertEqual(search.entry.get_text(), "HistoryOnly")
+                search.key_pressed(search.entry, SimpleNamespace(keyval=Gdk.KEY_Escape, state=0))
+                self.assertFalse(search.get_visible())
+                self.assertIsNone(first.terminal.search_get_regex())
+                self.assertFalse(first.terminal.get_has_selection())
+                pump_until(lambda: first.terminal.has_focus())
+            finally:
+                window.close_window()
+                window.destroy()
+
     def test_terminal_grid_stays_at_bottom_without_clipping_or_mouse_offset(self):
         import cairo
         from app import Window, Gtk, Gdk, Pango, Vte
@@ -413,8 +477,7 @@ class TerminalTests(unittest.TestCase):
                 # 侧栏底部的“添加服务器”始终可见，且不再出现在“设置”菜单中。
                 pump_until(lambda: window.add_server_button.get_mapped())
                 self.assertTrue(window.add_server_button.get_visible())
-                self.assertNotIn("添加服务器", [item.get_label()
-                                              for item in window.settings_menu.get_children()])
+                self.assertIs(window.settings_button.get_parent(), window.header)
                 with patch.object(window, "add_dialog") as add:
                     window.add_server_button.clicked()
                     add.assert_called_once_with()
@@ -687,6 +750,51 @@ class TerminalTests(unittest.TestCase):
             finally:
                 window.destroy()
 
+    def test_server_drag_cancellation_waits_for_initialization(self):
+        from types import SimpleNamespace
+        from app import Window, Gtk, Gdk
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = AliasStore(Path(directory) / "servers.json")
+            store.save(["server-a"])
+            window = Window(store=store, enable_quota=False,
+                            command_factory=lambda _: ["/bin/cat"])
+            window.confirm = lambda *_: True
+            events = []
+            window.server_list.connect("drag-begin", lambda *_: events.append("begin"))
+            window.server_list.connect("drag-end", lambda *_: events.append("end"))
+            try:
+                pump_until(lambda: window.rows["server-a"].get_allocated_height() > 1)
+                targets = Gtk.TargetList.new([window.server_drag_target])
+                for alias in ("server-a", "", None, "server-a"):
+                    with self.subTest(source=alias):
+                        if alias is None:
+                            y = window.server_list.get_allocated_height() + 10
+                        else:
+                            row = window.rows[alias]
+                            _, y = row.translate_coordinates(
+                                window.server_list, 0, row.get_allocated_height() // 2)
+                        window.server_drag_pressed(window.server_list,
+                                                   SimpleNamespace(button=1, y=y))
+                        self.assertEqual(window.server_drag_alias, alias or "")
+                        events.clear()
+                        # Use GTK's real initialization and teardown, not a mock
+                        # context: cancelling inside drag-begin corrupts its state.
+                        context = window.server_list.drag_begin_with_coordinates(
+                            targets, Gdk.DragAction.MOVE, 1, None, -1, -1)
+                        self.assertEqual(events, ["begin"])
+                        if alias:
+                            while Gtk.events_pending():
+                                Gtk.main_iteration_do(False)
+                            self.assertEqual(events, ["begin"])
+                            Gtk.drag_cancel(context)
+                        pump_until(lambda: events == ["begin", "end"])
+                        self.assertEqual(store.load(), ["server-a"])
+                self.assertEqual(window.groups, {})
+            finally:
+                window.close_window()
+                window.destroy()
+
     def test_server_drag_order_persists_and_preserves_sessions(self):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -830,9 +938,8 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.get_property("window-position"), Gtk.WindowPosition.CENTER)
                 pid = session.pid
                 original = window.appearance.copy()
-                item = next(item for item in window.settings_menu.get_children()
-                            if item.get_label() == "外观设置")
-                item.activate()
+                item = window.settings_button
+                item.clicked()
                 dialog = next(widget for widget in Gtk.Window.list_toplevels()
                               if isinstance(widget, AppearanceDialog) and widget.owner is window)
                 self.assertFalse(dialog.get_modal())
@@ -841,10 +948,16 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(dialog.get_type_hint(), Gdk.WindowTypeHint.NORMAL)
                 self.assertFalse(dialog.get_skip_taskbar_hint())
                 self.assertTrue(dialog.get_titlebar().get_show_close_button())
+                self.assertEqual([dialog.settings_stack.child_get_property(page, "title")
+                                  for page in dialog.settings_stack.get_children()],
+                                 ["常规", "文字", "颜色", "背景"])
+                for name in ("general", "text", "colors", "background"):
+                    dialog.settings_stack.set_visible_child_name(name)
+                    self.assertEqual(dialog.settings_stack.get_visible_child_name(), name)
                 pump_until(lambda: dialog.get_mapped())
                 main_size = tuple(window.get_size())
-                dialog.resize(760, 680)
-                pump_until(lambda: dialog.get_size().width >= 760)
+                dialog.resize(900, 780)
+                pump_until(lambda: dialog.get_size().width >= 900)
                 self.assertEqual(tuple(window.get_size()), main_size)
                 dialog_size = tuple(dialog.get_size())
                 window.resize(main_size[0] + 100, main_size[1] + 80)
@@ -853,7 +966,7 @@ class TerminalTests(unittest.TestCase):
 
                 dialog.theme.set_active_id("papercolor-light")
                 draft = dialog.values()
-                item.activate()
+                item.clicked()
                 self.assertIs(window.appearance_dialog, dialog)
                 self.assertEqual(dialog.values(), draft)
                 self.assertEqual(sum(isinstance(widget, AppearanceDialog) and widget.owner is window
@@ -866,7 +979,7 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.appearance, original)
                 self.assertFalse(window.appearance_store.path.exists())
 
-                item.activate()
+                item.clicked()
                 replacement = window.appearance_dialog
                 self.assertIsNot(replacement, dialog)
                 self.assertEqual(replacement.values(), original)
@@ -1210,7 +1323,7 @@ class TerminalTests(unittest.TestCase):
                         colors = interface_colors(dialog.values())
                         expected = rgba(colors["surface"]).to_string()
                         pump_until(lambda: background(window.header) == expected)
-                        for widget in (window.sidebar, window.status_bar, window.settings_menu,
+                        for widget in (window.sidebar, window.status_bar,
                                        window.groups[""].tab_strip):
                             self.assertEqual(background(widget), expected)
                         self.assertEqual(background(other.header), other_background)
@@ -1256,7 +1369,7 @@ class TerminalTests(unittest.TestCase):
                 while context.pending():
                     context.iteration(False)
 
-    def test_inline_add_tracks_tabs_reordering_overflow_and_empty_group(self):
+    def test_tabs_reordering_overflow_and_empty_group(self):
         from types import SimpleNamespace
         from unittest.mock import patch
         from app import SessionNotebook
@@ -1290,26 +1403,25 @@ class TerminalTests(unittest.TestCase):
             group.add_tab(page, lambda session: session.destroy())
             group.set_current_page(index)
 
-        group = SessionNotebook(add_page)
+        group = SessionNotebook()
         window = Gtk.Window(default_width=480, default_height=200)
         window.add(group.panel)
         window.show_all()
         try:
-            group.add_button.clicked()
-            group.add_button.clicked()
+            add_page()
+            add_page()
             first, second = group.get_children()
 
-            def inline_gap():
+            def last_tab_visible():
                 last = group.get_nth_page(group.get_n_pages() - 1)
                 row = group.tabs[last][0]
-                right = row.translate_coordinates(group.tab_strip, row.get_allocated_width(), 0)[0]
-                return group.add_button.translate_coordinates(group.tab_strip, 0, 0)[0] - right
+                right = row.translate_coordinates(group.tab_scroll, row.get_allocated_width(), 0)[0]
+                return right <= group.tab_scroll.get_allocated_width()
 
             # Before GTK allocates the rows, their initial 1px sizes can also
-            # satisfy the gap check. Wait for actual layout before measuring.
+            # satisfy the visibility check. Wait for actual layout before measuring.
             pump_until(lambda: all(group.tabs[page][0].get_allocated_width() >= 240
-                                   for page in (first, second)) and 0 <= inline_gap() <= 6)
-            self.assertLess(group.add_button.translate_coordinates(window, 0, 0)[0], 480)
+                                   for page in (first, second)) and last_tab_visible())
             for page in (first, second):
                 row, select = group.tabs[page]
                 close = row.get_children()[1]
@@ -1332,26 +1444,23 @@ class TerminalTests(unittest.TestCase):
             self.assertIs(group.get_nth_page(0), second)
             self.assertEqual([page.tab_label.get_text() for page in group.get_children()], ["[1]", "[2]"])
             self.assertEqual(group.tab_strip.get_children(),
-                             [group.tabs[second][0], group.tabs[first][0], group.add_button])
-            pump_until(lambda: 0 <= inline_gap() <= 6)
+                             [group.tabs[second][0], group.tabs[first][0]])
 
             for _ in range(15):
-                group.add_button.clicked()
+                add_page()
             adjustment = group.tab_scroll.get_hadjustment()
             pump_until(lambda: adjustment.get_upper() > adjustment.get_page_size()
-                       and group.add_button.translate_coordinates(group.tab_scroll, 0, 0)[0]
-                       + group.add_button.get_allocated_width() <= group.tab_scroll.get_allocated_width())
+                       and last_tab_visible())
             self.assertLessEqual(window.get_allocated_width(), 500, "Tabs must scroll instead of widening the window")
             group.set_current_page(0)
             pump_until(lambda: adjustment.get_value() == 0)
             last = group.get_nth_page(group.get_n_pages() - 1)
             group.tabs[last][0].get_children()[1].clicked()
-            pump_until(lambda: 0 <= inline_gap() <= 6)
             for page in group.get_children():
                 page.destroy()
-            pump_until(lambda: group.get_n_pages() == 0 and group.add_button.get_mapped())
-            self.assertEqual(group.tab_strip.get_children(), [group.add_button])
-            group.add_button.clicked()
+            pump_until(lambda: group.get_n_pages() == 0)
+            self.assertEqual(group.tab_strip.get_children(), [])
+            add_page()
             self.assertEqual(group.get_n_pages(), 1)
             self.assertEqual(group.get_nth_page(0).tab_label.get_text(), "[1]")
         finally:
@@ -1658,15 +1767,8 @@ class TerminalTests(unittest.TestCase):
             window.confirm = lambda *args: True
             try:
                 self.assertEqual(window.groups, {}, "Startup must not connect automatically")
-                menu_items = window.settings_menu.get_children()
-                self.assertEqual([item.get_label() for item in menu_items],
-                                 ["快捷键", "外观设置", "终端设置", "订阅额度", "诊断日志", "关于 zTerm"])
-                for item, method in zip(menu_items[:1], ("show_shortcuts",)):
-                    with patch.object(window, method) as action:
-                        item.activate()
-                        action.assert_called_once_with()
                 with patch("app.AppearanceDialog") as appearance:
-                    menu_items[1].activate()
+                    window.settings_button.clicked()
                     appearance.assert_called_once_with(window)
                 with patch.object(window, "add_dialog") as action:
                     window.add_server_button.clicked()
@@ -1682,11 +1784,11 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(window.get_title(), "dev-server")
                 self.assertEqual(window.connection_label.get_text(), "dev-server · 在线")
                 self.assertFalse(window.reconnect.get_visible())
-                self.assertEqual(len(first.get_children()), 1, "Sessions must not have a second footer")
+                self.assertFalse(first.search_bar.get_visible())
                 first.terminal.feed_child(b"hello-terminal\n")
                 pump_until(lambda: "REPLY=hello-terminal" in output(first))
                 group = window.groups["dev-server"]
-                group.add_button.clicked()
+                window.add_button.clicked()
                 second = group.get_nth_page(1)
                 pump_until(lambda: second.alive)
                 self.assertEqual(second.tab_label.get_text(), "[2] sh")
@@ -1744,7 +1846,7 @@ class TerminalTests(unittest.TestCase):
                 pump_until(lambda: not Path(f"/proc/{second_pid}").exists())
                 self.assertEqual(window.groups["dev-server"].get_n_pages(), 1)
                 for _ in range(3):
-                    group.add_button.clicked()
+                    window.add_button.clicked()
                 pump_until(lambda: all(page.alive for page in window.groups["dev-server"].get_children()))
                 window.groups["dev-server"].set_current_page(0)
                 # Screenshot contains simulated sessions only, never user data.

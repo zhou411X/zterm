@@ -26,11 +26,13 @@ terminal-window .terminal-screen 规则；采用窗口激活时颜色，不复�
 这些都是随应用打包的 RGB 值，不读取或修改 GNOME Terminal 的用户配置。
 
 Solarized Light / Dark
-本机：~/.vim_runtime/sources_non_forked/vim-colors-solarized/colors/solarized.vim
-RGB 定义在 245–261 行，16 色索引在 285–300 行，明暗反转在 379–391 行。
-使用本机 GUI RGB 值，包括实验绿色 #719e07，不改成其他版本的 #859900。
-Light 将八种 base 色按本机 light 分支反转；文字和光标均取 base0。
-项目：https://github.com/altercation/vim-colors-solarized
+按用户选择，对齐本机 VS Code 内置 Solarized 编辑器的默认文字、背景和光标色，并使用其 ANSI 调色板（2026-10-28）。
+本机：/usr/share/code/resources/app/extensions/theme-solarized-{light,dark}/themes/solarized-{light,dark}-color-theme.json
+ANSI 0–15 取 terminal.ansiBlack 至 terminal.ansiBrightWhite；Light / Dark 使用同一套调色板，绿色为 #859900，Light 不反转 base 色索引。
+默认色取 editor.foreground / editor.background / editorCursor.foreground：Dark 为 #839496 / #002b36 / #d30102，Light 为 #657b83 / #fdf6e3 / #657b83。
+终端只能按应用输出的 ANSI 色号着色，不能按 VS Code tokenColors 区分代码语法；应用自带的 truecolor 仍由应用控制。
+项目：https://github.com/microsoft/vscode/tree/main/extensions/theme-solarized-dark
+      https://github.com/microsoft/vscode/tree/main/extensions/theme-solarized-light
 
 Gruvbox Light / Dark
 本机：~/.vim_runtime/sources_non_forked/gruvbox/colors/gruvbox.vim

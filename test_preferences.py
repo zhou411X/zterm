@@ -78,10 +78,11 @@ class TerminalPreferencesTests(unittest.TestCase):
         return (terminal or self.terminal).get_text_selected(Vte.Format.TEXT) or ""
 
     def search(self, text, ignore_case=True):
-        self.window.terminal_search_button.set_active(True)
-        self.window.search_ignore_case.set_active(ignore_case)
-        self.window.terminal_search_entry.set_text(text)
-        self.window.sync_terminal_search(force=True)
+        search = self.window.current_session().search_bar
+        search.open()
+        search.ignore_case.set_active(ignore_case)
+        search.entry.set_text(text)
+        search.find()
 
     def event(self, key, mods=0):
         from app import Gdk
@@ -91,51 +92,54 @@ class TerminalPreferencesTests(unittest.TestCase):
         self.feed(self.terminal, "Alpha\r\nalpha\r\nALPHA\r\na.b [x] 中文\r\nSEARCH-READY\r\n")
         self.search("alpha")
         self.assertEqual(self.selected().lower(), "alpha")
-        self.window.find_terminal(True)
+        self.window.current_session().search_bar.find()
         self.assertEqual(self.selected(), "alpha")
-        self.window.find_terminal(False)
+        self.window.current_session().search_bar.find(True)
         self.assertEqual(self.selected(), "Alpha")
-        self.window.search_ignore_case.set_active(False)
+        self.window.current_session().search_bar.ignore_case.set_active(False)
         self.assertEqual(self.selected(), "alpha")
         self.search("a.b [x] 中文", False)
         self.assertEqual(self.selected(), "a.b [x] 中文")
-        self.window.find_terminal(False)
+        self.window.current_session().search_bar.find(True)
         self.assertEqual(self.selected(), "a.b [x] 中文")
-        self.window.find_terminal(True)
+        self.window.current_session().search_bar.find()
         self.assertEqual(self.selected(), "a.b [x] 中文")
         self.search("DOES-NOT-EXIST")
-        self.assertEqual(self.window.terminal_search_status.get_text(), "未找到匹配")
+        self.assertEqual(self.window.current_session().search_bar.result.get_text(), "未找到")
         self.assertFalse(self.terminal.get_has_selection())
         self.search("Alpha", False)
         self.assertTrue(self.terminal.get_has_selection())
         self.search("")
         self.assertFalse(self.terminal.get_has_selection())
         self.search("Alpha", False)
-        self.window.terminal_search_button.set_active(False)
-        self.assertFalse(self.window.terminal_search_bar.get_visible())
+        self.window.current_session().search_bar.close()
+        self.assertFalse(self.window.current_session().search_bar.get_visible())
         self.assertFalse(self.terminal.get_has_selection())
         self.assertIsNone(self.terminal.search_get_regex())
 
     def test_search_history_and_session_switch(self):
+        first = self.window.current_session()
         self.feed(self.terminal, "HISTORY-NEEDLE\r\n" + "history filler\r\n" * 150 + "HISTORY-READY\r\n")
         self.search("HISTORY-NEEDLE")
         self.assertEqual(self.selected(), "HISTORY-NEEDLE")
         second = self.window.new_session()
         pump_until(lambda: second.alive)
-        self.assertIs(self.window.search_terminal, second.terminal)
-        self.assertFalse(self.terminal.get_has_selection())
+        self.assertFalse(second.search_bar.get_visible())
+        self.assertEqual(second.search_bar.entry.get_text(), "")
         self.feed(second.terminal, "SECOND-ONLY\r\nSECOND-READY\r\n")
         self.search("SECOND-ONLY")
         self.assertEqual(self.selected(second.terminal), "SECOND-ONLY")
         self.window.groups[""].set_current_page(0)
-        self.assertIs(self.window.search_terminal, self.terminal)
-        self.assertEqual(self.window.terminal_search_status.get_text(), "未找到匹配")
+        self.assertTrue(first.search_bar.get_visible())
+        self.assertEqual(first.search_bar.entry.get_text(), "HISTORY-NEEDLE")
+        first.search_bar.find()
+        self.assertEqual(self.selected(), "HISTORY-NEEDLE")
         self.window.server_list.select_row(self.window.rows["other"])
         pump_until(lambda: self.window.current_session().alive)
-        self.assertIs(self.window.search_terminal, self.window.current_session().terminal)
+        self.assertFalse(self.window.current_session().search_bar.get_visible())
         self.window.close_session(self.window.current_session())
-        self.assertIsNone(self.window.search_terminal)
-        self.assertEqual(self.window.terminal_search_status.get_text(), "当前没有会话")
+        self.assertIsNone(self.window.current_session())
+        self.assertFalse(self.window.search_button.get_sensitive())
 
     def test_scrollback_applies_to_all_sessions_and_new_windows_with_bell_off(self):
         from app import Gtk, Window, AppearanceDialog
@@ -172,7 +176,7 @@ class TerminalPreferencesTests(unittest.TestCase):
         dialog.scrollback.set_value(0)
         dialog.response(Gtk.ResponseType.OK)
         self.search("OLD-NEEDLE")
-        self.assertEqual(self.window.terminal_search_status.get_text(), "未找到匹配")
+        self.assertEqual(self.window.current_session().search_bar.result.get_text(), "未找到")
 
     def test_keyboard_event_opens_search_and_zoom_aliases(self):
         from app import Gdk, Gtk
@@ -194,9 +198,9 @@ class TerminalPreferencesTests(unittest.TestCase):
         event.set_device(window.get_display().get_default_seat().get_keyboard())
         window.set_preferences(window.preferences_store.save({"shortcuts": {"search": "F6"}}))
         Gtk.main_do_event(event)
-        self.assertTrue(window.terminal_search_bar.get_visible())
-        window.terminal_search_entry.emit("stop-search")
-        self.assertFalse(window.terminal_search_bar.get_visible())
+        self.assertTrue(window.current_session().search_bar.get_visible())
+        window.current_session().search_bar.entry.emit("stop-search")
+        self.assertFalse(window.current_session().search_bar.get_visible())
         ctrl = Gdk.ModifierType.CONTROL_MASK
         self.assertTrue(window.key_pressed(window, self.event("plus", ctrl | Gdk.ModifierType.SHIFT_MASK)))
         self.assertAlmostEqual(self.terminal.get_font_scale(), 1.1)
@@ -240,8 +244,8 @@ class TerminalPreferencesTests(unittest.TestCase):
         ctrlshift = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
         self.assertFalse(self.window.key_pressed(self.window, self.event("f", ctrlshift)))
         self.assertTrue(self.window.key_pressed(self.window, self.event("F6")))
-        self.assertTrue(self.window.terminal_search_bar.get_visible())
-        self.window.terminal_search_entry.grab_focus()
+        self.assertTrue(self.window.current_session().search_bar.get_visible())
+        self.window.current_session().search_bar.entry.grab_focus()
         with patch.object(self.terminal, "paste_clipboard") as paste:
             self.assertFalse(self.window.key_pressed(self.window, self.event("v", ctrlshift)))
             paste.assert_not_called()

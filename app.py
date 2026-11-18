@@ -33,9 +33,7 @@ from quota import fetch as fetch_quota, display as display_quota
 
 LOG = logging.getLogger("zterm.app")
 APP_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
-SIDEBAR_RAIL_WIDTH = 56
-# PCRE2_MULTILINE from pcre2.h; VTE requires this compile flag for searches.
-SEARCH_REGEX_FLAGS = Vte.REGEX_FLAGS_DEFAULT | 0x00000400
+SIDEBAR_RAIL_WIDTH = 0
 
 
 def button(label, callback, tooltip=None):
@@ -175,21 +173,21 @@ class InterfaceStyle:
 
 class AppearanceDialog(Gtk.Dialog):
     def __init__(self, window):
-        super().__init__(title="外观设置", modal=False, use_header_bar=False)
+        super().__init__(title="偏好设置", modal=False, use_header_bar=False)
         self.owner = window
         window.appearance_dialog = self
         self.set_application(window.get_application())
         self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
         self.set_skip_taskbar_hint(False)
         self.set_icon(window.get_icon())
-        header = Gtk.HeaderBar(title="外观设置", show_close_button=True)
+        header = Gtk.HeaderBar(title="偏好设置", show_close_button=True)
         header.set_decoration_layout(":minimize,maximize,close")
         self.set_titlebar(header)
         self.owner_destroy_handler = window.connect("destroy", lambda *_: self.destroy())
         window.interface_style.attach(self)
         self.connect("destroy", self.on_destroy)
         self.loading = True
-        self.set_default_size(660, 740)
+        self.set_default_size(800, 740)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.add_buttons("恢复默认", Gtk.ResponseType.REJECT,
                          "取消", Gtk.ResponseType.CANCEL, "保存并应用", Gtk.ResponseType.OK)
@@ -201,8 +199,9 @@ class AppearanceDialog(Gtk.Dialog):
         self.font = Gtk.FontButton(title="选择终端字体和字号", show_size=True, show_style=True)
         self.font.set_hexpand(True)
         self.font.set_preview_text("终端字体预览  AaBb 0123456789  ~/workspace $")
-        grid.attach(Gtk.Label(label="字体与字号", xalign=0), 0, 0, 1, 1)
-        grid.attach(self.font, 1, 0, 1, 1)
+        text_grid = Gtk.Grid(column_spacing=16, row_spacing=12, margin=12)
+        text_grid.attach(Gtk.Label(label="字体与字号", xalign=0), 0, 0, 1, 1)
+        text_grid.attach(self.font, 1, 0, 1, 1)
         self.theme = Gtk.ComboBoxText()
         for key, theme in THEMES.items():
             self.theme.append(key, theme["name"])
@@ -248,18 +247,32 @@ class AppearanceDialog(Gtk.Dialog):
         self.background_on_terminal = Gtk.CheckButton(label="背景图片同时应用到终端")
         self.background_on_terminal.connect("toggled", self.update_preview)
         background_grid.attach(self.background_on_terminal, 1, 4, 1, 1)
-        self.settings_notebook = Gtk.Notebook()
+        self.settings_stack = Gtk.Stack()
+        self.settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        general = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=12)
+        general.pack_start(Gtk.Label(label="zTerm · 终端偏好设置", xalign=0), False, False, 0)
+        for label, callback in (("终端滚动", window.show_terminal_settings),
+                                ("快捷键", window.show_shortcuts),
+                                ("订阅额度", window.quota_settings),
+                                ("诊断日志", window.show_diagnostics),
+                                ("关于 zTerm", window.show_about)):
+            general.pack_start(button(label, lambda _, action=callback: action()), False, False, 0)
         grid.set_margin_start(12)
         grid.set_margin_end(12)
         grid.set_margin_top(12)
         grid.set_margin_bottom(12)
-        self.settings_notebook.append_page(grid, Gtk.Label(label="字体与配色"))
-        self.settings_notebook.append_page(background_grid, Gtk.Label(label="背景效果"))
+        for name, title, page in (("general", "常规", general), ("text", "文字", text_grid),
+                                  ("colors", "颜色", grid), ("background", "背景", background_grid)):
+            self.settings_stack.add_titled(page, name, title)
+        self.settings_sidebar = Gtk.StackSidebar(stack=self.settings_stack)
         settings_scroll = Gtk.ScrolledWindow()
         settings_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         settings_scroll.set_min_content_height(350)
-        settings_scroll.add(self.settings_notebook)
-        content.pack_start(settings_scroll, True, True, 0)
+        settings_scroll.add(self.settings_stack)
+        settings_body = Gtk.Box(spacing=12)
+        settings_body.pack_start(self.settings_sidebar, False, False, 0)
+        settings_body.pack_start(settings_scroll, True, True, 0)
+        content.pack_start(settings_body, True, True, 0)
         content.pack_start(Gtk.Label(label="界面主题控制标题栏、侧栏、标签和底栏，可跟随终端或独立选择。\n"
                                           "图片毛玻璃模糊背景图片，文字保持清晰；不会模糊桌面后方的窗口。\n"
                                           "100% 为不透明；取消恢复原样，保存后应用到所有会话。",
@@ -620,6 +633,75 @@ class ServerDialog(Gtk.Dialog):
         return False
 
 
+class TerminalSearch(Gtk.Box):
+    def __init__(self, terminal):
+        super().__init__(spacing=6, margin=6)
+        self.terminal = terminal
+        self.pattern = None
+        self.set_no_show_all(True)
+        self.entry = Gtk.SearchEntry(placeholder_text="搜索当前终端（含滚动历史）")
+        self.pack_start(self.entry, True, True, 0)
+        self.ignore_case = Gtk.CheckButton(label="忽略大小写", active=True)
+        self.pack_start(self.ignore_case, False, False, 0)
+        self.pack_start(button("↑", lambda _: self.find(True), "上一处 · Shift+Enter"), False, False, 0)
+        self.pack_start(button("↓", lambda _: self.find(), "下一处 · Enter"), False, False, 0)
+        self.result = Gtk.Label()
+        self.pack_start(self.result, False, False, 0)
+        self.pack_start(button("×", lambda _: self.close(), "关闭搜索 · Esc"), False, False, 0)
+        self.entry.connect("search-changed", lambda _: self.find() if self.get_visible() else None)
+        self.ignore_case.connect("toggled", lambda _: self.find())
+        self.entry.connect("key-press-event", self.key_pressed)
+        self.entry.connect("stop-search", lambda _: self.close())
+        for child in self.get_children():
+            child.show_all()
+
+    def open(self):
+        self.show()
+        self.entry.grab_focus()
+        self.entry.select_region(0, -1)
+        if self.pattern is None:
+            self.find()
+
+    def close(self):
+        self.hide()
+        self.terminal.search_set_regex(None, 0)
+        self.terminal.unselect_all()
+        self.pattern = None
+        self.result.set_text("")
+        self.terminal.grab_focus()
+
+    def key_pressed(self, _, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.close()
+        elif event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.find(bool(event.state & Gdk.ModifierType.SHIFT_MASK))
+        else:
+            return False
+        return True
+
+    def find(self, backwards=False):
+        text = self.entry.get_text()
+        if not text:
+            self.terminal.search_set_regex(None, 0)
+            self.terminal.unselect_all()
+            self.pattern = None
+            self.result.set_text("")
+            return
+        pattern = (text, self.ignore_case.get_active())
+        if pattern != self.pattern:
+            literal = text.replace("\\E", "\\E\\\\E\\Q")
+            expression = "(*UTF)(*UCP)" + ("(?i)" if pattern[1] else "") + "\\Q" + literal + "\\E"
+            # VTE requires PCRE2_MULTILINE; quote input to search literal text.
+            regex = Vte.Regex.new_for_search(expression, -1, 0x00000400)
+            self.terminal.search_set_regex(regex, 0)
+            self.terminal.search_set_wrap_around(True)
+            self.pattern = pattern
+        find = self.terminal.search_find_previous if backwards else self.terminal.search_find_next
+        # At the wrap boundary VTE can clear the selection before starting over.
+        found = find() or find()
+        self.result.set_text("已高亮匹配" if found else "未找到")
+
+
 class Session(Gtk.Box):
     def __init__(self, window, alias, number, argv):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -652,6 +734,8 @@ class Session(Gtk.Box):
         apply_appearance(self.terminal, window.appearance)
         self.terminal.set_hexpand(True)
         self.terminal.set_vexpand(True)
+        self.search_bar = TerminalSearch(self.terminal)
+        self.pack_start(self.search_bar, False, False, 0)
         settings = dict(window.appearance, **window.background_settings)
         self.background = BackgroundBox(window.background_renderer, settings, terminal=True,
                                         anchor=window.background_layout,
@@ -771,9 +855,9 @@ class SessionTab(Gtk.Box):
 
 
 class SessionNotebook(Gtk.Notebook):
-    """Native session pages with a scrollable, sequential tab-and-add strip."""
+    """Native session pages with a scrollable tab strip."""
 
-    def __init__(self, new_session):
+    def __init__(self):
         super().__init__(show_tabs=False, show_border=False)
         self.tabs = {}
         self.tab_css = Gtk.CssProvider()
@@ -810,11 +894,6 @@ class SessionNotebook(Gtk.Notebook):
         self.tab_scroll.add(self.tab_strip)
         self.panel.pack_start(self.tab_scroll, False, False, 0)
         self.panel.pack_start(self, True, True, 0)
-        self.add_button = button("+", lambda _: new_session(), "新会话 · Ctrl+Shift+T")
-        self.add_button.set_relief(Gtk.ReliefStyle.NONE)
-        self.add_button.set_focus_on_click(False)
-        self.add_button.get_accessible().set_name("新会话")
-        self.tab_strip.pack_start(self.add_button, False, False, 0)
         self.drag_target = Gtk.TargetEntry.new(
             f"application/x-zterm-tab-{id(self)}", Gtk.TargetFlags.SAME_APP, 0)
         self.connect("switch-page", self.page_selected)
@@ -847,7 +926,6 @@ class SessionNotebook(Gtk.Notebook):
         row.pack_end(close, False, False, 0)
         self.tabs[session] = (row, select)
         self.tab_strip.pack_start(row, False, False, 0)
-        self.tab_strip.reorder_child(self.add_button, -1)
         select.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [self.drag_target], Gdk.DragAction.MOVE)
         select.drag_dest_set(Gtk.DestDefaults.ALL, [self.drag_target], Gdk.DragAction.MOVE)
         select.connect("drag-data-get", lambda widget, context, data, info, timestamp:
@@ -891,9 +969,6 @@ class SessionNotebook(Gtk.Notebook):
         row = self.tabs[current][0]
         x, _ = row.translate_coordinates(self.tab_strip, 0, 0)
         end = x + row.get_allocated_width()
-        if self.page_num(current) == self.get_n_pages() - 1:
-            add_x, _ = self.add_button.translate_coordinates(self.tab_strip, 0, 0)
-            end = add_x + self.add_button.get_allocated_width()
         self.tab_scroll.get_hadjustment().clamp_page(x, end)
         return False
 
@@ -908,7 +983,6 @@ class SessionNotebook(Gtk.Notebook):
 
     def page_reordered(self, notebook, session, index):
         self.tab_strip.reorder_child(self.tabs[session][0], index)
-        self.tab_strip.reorder_child(self.add_button, -1)
         self.renumber_tabs()
         self.reveal_current()
 
@@ -943,8 +1017,6 @@ class Window(Gtk.ApplicationWindow):
         except (OSError, ValueError) as error:
             self.preferences = default_preferences()
             self.preferences_error = str(error)
-        self.search_terminal = None
-        self.search_query = ("", True)
         self.appearance_store = AppearanceStore(self.store.path.with_name("appearance.json"))
         self.appearance_error = None
         try:
@@ -979,32 +1051,26 @@ class Window(Gtk.ApplicationWindow):
         self.sidebar_toggle.set_image(Gtk.Image.new_from_icon_name("view-sidebar-symbolic", Gtk.IconSize.BUTTON))
         self.sidebar_toggle.set_tooltip_text("收起服务器栏")
         self.sidebar_toggle.get_accessible().set_name("展开或收起服务器栏")
-        self.settings_button = Gtk.MenuButton(label="设置")
-        self.settings_menu = Gtk.Menu()
-        self.interface_style.attach(self.settings_menu)
-        for label, callback in [("快捷键", lambda _: self.show_shortcuts()),
-                                ("外观设置", lambda _: self.show_appearance()),
-                                ("终端设置", lambda _: self.show_terminal_settings()),
-                                ("订阅额度", lambda _: self.quota_settings()),
-                                ("诊断日志", lambda _: self.show_diagnostics()),
-                                ("关于 zTerm", lambda _: self.show_about())]:
-            item = Gtk.MenuItem(label=label)
-            item.connect("activate", callback)
-            self.settings_menu.append(item)
-        self.settings_menu.show_all()
-        self.settings_button.set_popup(self.settings_menu)
+        header.pack_start(self.sidebar_toggle)
+        self.add_button = button("+", lambda _: self.new_session(), "新会话 · Ctrl+Shift+T")
+        self.add_button.set_focus_on_click(False)
+        self.add_button.get_accessible().set_name("新会话")
+        self.add_button.set_sensitive(False)
+        header.pack_start(self.add_button)
+        self.settings_button = button("设置", lambda _: self.show_appearance(), "偏好设置")
         header.pack_end(self.settings_button)
-        self.terminal_search_button = Gtk.ToggleButton()
-        self.terminal_search_button.set_image(
-            Gtk.Image.new_from_icon_name("edit-find-symbolic", Gtk.IconSize.BUTTON))
-        self.terminal_search_button.set_tooltip_text("搜索当前终端")
-        self.terminal_search_button.get_accessible().set_name("搜索终端内容")
-        header.pack_end(self.terminal_search_button)
         self.files_toggle = Gtk.ToggleButton()
         self.files_toggle.set_image(Gtk.Image.new_from_icon_name("folder-symbolic", Gtk.IconSize.BUTTON))
         self.files_toggle.set_always_show_image(True)
         self.files_toggle.get_accessible().set_name("展开或收起文件栏")
         self.files_toggle.set_tooltip_text("展开文件栏（SFTP）")
+        header.pack_end(self.files_toggle)
+        self.search_button = button("", lambda _: self.show_terminal_search(), "搜索终端输出 · Ctrl+Shift+F")
+        self.search_button.set_image(Gtk.Image.new_from_icon_name("edit-find-symbolic", Gtk.IconSize.BUTTON))
+        self.search_button.set_always_show_image(True)
+        self.search_button.get_accessible().set_name("搜索终端输出")
+        self.search_button.set_sensitive(False)
+        header.pack_end(self.search_button)
         self.set_titlebar(header)
         pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         # Keep the resize hit area out of the terminal's first character cell.
@@ -1015,28 +1081,6 @@ class Window(Gtk.ApplicationWindow):
         layout = BackgroundBox(self.background_renderer, self.appearance, orientation=Gtk.Orientation.VERTICAL)
         self.background_layout = layout
         self.add(layout)
-        self.terminal_search_bar = Gtk.Box(spacing=8, margin=8)
-        self.terminal_search_entry = Gtk.SearchEntry(placeholder_text="搜索当前终端内容")
-        self.terminal_search_entry.set_hexpand(True)
-        self.terminal_search_bar.pack_start(self.terminal_search_entry, True, True, 0)
-        self.search_ignore_case = Gtk.CheckButton(label="忽略大小写", active=True)
-        self.terminal_search_bar.pack_start(self.search_ignore_case, False, False, 0)
-        self.terminal_search_bar.pack_start(button("上一个", lambda _: self.find_terminal(False)), False, False, 0)
-        self.terminal_search_bar.pack_start(button("下一个", lambda _: self.find_terminal(True)), False, False, 0)
-        self.terminal_search_status = Gtk.Label()
-        self.terminal_search_bar.pack_start(self.terminal_search_status, False, False, 0)
-        self.terminal_search_bar.pack_end(button("关闭", lambda _: self.terminal_search_button.set_active(False)),
-                                        False, False, 0)
-        self.terminal_search_bar.show_all()
-        self.terminal_search_bar.set_no_show_all(True)
-        self.terminal_search_bar.hide()
-        layout.pack_start(self.terminal_search_bar, False, False, 0)
-        self.terminal_search_button.connect("toggled", self.toggle_terminal_search)
-        self.terminal_search_entry.connect("search-changed", lambda _: self.sync_terminal_search(force=True))
-        self.terminal_search_entry.connect("activate", lambda _: self.find_terminal(True))
-        self.terminal_search_entry.connect("stop-search", lambda _: self.terminal_search_button.set_active(False))
-        self.terminal_search_entry.connect("key-press-event", self.search_key_pressed)
-        self.search_ignore_case.connect("toggled", lambda _: self.sync_terminal_search(force=True))
         layout.pack_start(pane, True, True, 0)
         self.status_bar = Gtk.Box(spacing=8, margin=6)
         self.status_bar.get_style_context().add_class("workspace-status")
@@ -1061,7 +1105,7 @@ class Window(Gtk.ApplicationWindow):
         layout.pack_end(self.status_bar, False, False, 0)
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=10)
         self.sidebar = side
-        self.server_dock = self.make_sidebar_dock(self.sidebar_toggle, Gtk.Align.START)
+        self.server_dock = self.make_sidebar_dock()
         side.get_style_context().add_class("workspace-sidebar")
         side.set_size_request(170, -1)
         self.search = Gtk.SearchEntry(placeholder_text="搜索别名或 IP")
@@ -1115,13 +1159,14 @@ class Window(Gtk.ApplicationWindow):
             self.get_icon().scale_simple(64, 64, GdkPixbuf.InterpType.BILINEAR)), False, False, 0)
         welcome.pack_start(Gtk.Label(label="你的服务器，一个工作台"), False, False, 0)
         welcome.pack_start(Gtk.Label(label="点击左侧“添加服务器”新增服务器。\n"
-                                    "选择服务器后，用最后一个标签后的 ＋ 打开更多会话。\n"
+                                    "选择服务器后，用标题栏的 ＋ 打开更多会话。\n"
                                     "切换服务器会保留当前连接。", justify=Gtk.Justification.CENTER), False, False, 0)
         self.stack.add_named(welcome, "welcome")
         self.files = FileTransfers(self)
-        self.file_dock = self.make_sidebar_dock(self.files_toggle, Gtk.Align.END)
+        self.file_dock = self.make_sidebar_dock()
         self.file_dock.pack_start(self.files.panel, True, True, 0)
         self.file_pane = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.file_pane.set_wide_handle(True)
         self.file_pane.pack1(self.stack, True, False)
         self.file_pane.pack2(self.file_dock, False, False)
         pane.pack2(self.file_pane, True, False)
@@ -1138,6 +1183,9 @@ class Window(Gtk.ApplicationWindow):
         for child in self.files.panel.get_children():
             child.show_all()
         self.show_all()
+        self.file_dock.hide()
+        self.file_dock.set_no_show_all(True)
+        self.server_dock.set_no_show_all(True)
         self.background_renderer.request(self.appearance)
         self.files_toggle.connect("toggled", self.files.toggle)
         side.set_no_show_all(True)
@@ -1158,22 +1206,17 @@ class Window(Gtk.ApplicationWindow):
         if not visible:
             self.sidebar_width = self.pane.get_position()
         self.sidebar.set_visible(visible)
+        self.server_dock.set_visible(visible)
         if visible:
             self.pane.set_position(self.sidebar_width)
         else:
             self.pane.set_position(SIDEBAR_RAIL_WIDTH)
         toggle.set_tooltip_text("收起服务器栏" if visible else "展开服务器栏")
 
-    def make_sidebar_dock(self, toggle, alignment):
+    def make_sidebar_dock(self):
         dock = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         dock.set_size_request(SIDEBAR_RAIL_WIDTH, -1)
         dock.get_style_context().add_class("workspace-sidebar")
-        toggle.set_size_request(32, 32)
-        toggle.set_halign(alignment)
-        toggle.set_margin_start(8)
-        toggle.set_margin_end(8)
-        toggle.set_margin_top(8)
-        dock.pack_start(toggle, False, False, 0)
         return dock
 
     def sidebar_position_changed(self, pane, _property):
@@ -1191,8 +1234,9 @@ class Window(Gtk.ApplicationWindow):
         return notebook.get_nth_page(notebook.get_current_page()) if notebook else None
 
     def render_status(self, session=None):
-        self.sync_terminal_search()
         session = session or self.current_session()
+        self.add_button.set_sensitive(self.current is not None)
+        self.search_button.set_sensitive(session is not None)
         server = self.display_name(self.current)
         if session is None:
             text = "未选择服务器" if self.current is None else server + " · 无会话"
@@ -1297,63 +1341,6 @@ class Window(Gtk.ApplicationWindow):
         for group in self.groups.values():
             for session in group.get_children():
                 session.terminal.set_scrollback_lines(settings["scrollback_lines"])
-
-    def toggle_terminal_search(self, toggle):
-        self.terminal_search_bar.set_visible(toggle.get_active())
-        self.sync_terminal_search(force=True)
-        if toggle.get_active():
-            self.terminal_search_entry.grab_focus()
-        else:
-            session = self.current_session()
-            if session:
-                session.terminal.grab_focus()
-
-    def sync_terminal_search(self, force=False):
-        session = self.current_session()
-        terminal = session.terminal if session and self.terminal_search_button.get_active() else None
-        if not force and terminal is self.search_terminal:
-            return
-        if self.search_terminal is not None:
-            self.search_terminal.search_set_regex(None, 0)
-            self.search_terminal.unselect_all()
-        self.search_terminal = terminal
-        self.terminal_search_status.set_text("" if terminal else "当前没有会话")
-        query = self.terminal_search_entry.get_text()
-        self.search_query = (query, self.search_ignore_case.get_active())
-        if terminal is None or not query:
-            return
-        pattern = ("(?i)" if self.search_ignore_case.get_active() else "") + re.escape(query)
-        try:
-            regex = Vte.Regex.new_for_search(pattern, -1, SEARCH_REGEX_FLAGS)
-        except GLib.Error:
-            self.terminal_search_status.set_text("无法搜索此文本")
-            return
-        terminal.search_set_regex(regex, 0)
-        terminal.search_set_wrap_around(True)
-        self.find_terminal(True)
-
-    def find_terminal(self, forward):
-        query = (self.terminal_search_entry.get_text(), self.search_ignore_case.get_active())
-        if query != self.search_query:
-            self.sync_terminal_search(force=True)
-            return
-        terminal = self.search_terminal
-        if terminal is None or not self.terminal_search_entry.get_text():
-            return
-        find = terminal.search_find_next if forward else terminal.search_find_previous
-        selected = terminal.get_has_selection()
-        found = find()
-        # VTE excludes the selected match when wrapping. With a single match,
-        # it first clears the selection; search again to keep that match lit.
-        if not found and selected:
-            found = find()
-        self.terminal_search_status.set_text("" if found else "未找到匹配")
-
-    def search_key_pressed(self, widget, event):
-        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and event.state & Gdk.ModifierType.SHIFT_MASK:
-            self.find_terminal(False)
-            return True
-        return False
 
     def show_about(self):
         if self.about_dialog is None:
@@ -1519,7 +1506,9 @@ class Window(Gtk.ApplicationWindow):
 
     def server_drag_begin(self, widget, context):
         if not self.server_drag_alias:
-            Gtk.drag_cancel(context)
+            # GTK still initializes the drag after this signal returns; cancelling
+            # synchronously destroys source state that initialization still uses.
+            GLib.idle_add(Gtk.drag_cancel, context)
 
     def clear_server_drop(self, row, *_):
         style = row.get_style_context()
@@ -1601,7 +1590,7 @@ class Window(Gtk.ApplicationWindow):
         self.duplicate_button.set_sensitive(server_selected)
         self.remove_button.set_sensitive(server_selected)
         if row.alias not in self.groups:
-            notebook = SessionNotebook(self.new_session)
+            notebook = SessionNotebook()
             notebook.connect_after("switch-page", self.session_switched, row.alias)
             notebook.connect_after("page-removed", lambda *_: self.render_status())
             self.groups[row.alias] = notebook
@@ -1750,10 +1739,14 @@ class Window(Gtk.ApplicationWindow):
                 "关闭将终止会话并取消文件任务；选择取消可继续等待。"):
             return True
         self.files.close()
-        self.terminal_search_button.set_active(False)
         for session in sessions:
             session.dispose()
         return False
+
+    def show_terminal_search(self):
+        session = self.current_session()
+        if session is not None:
+            session.search_bar.open()
 
     def key_pressed(self, widget, event):
         pressed = shortcut_key(event.keyval, event.state)
@@ -1764,8 +1757,7 @@ class Window(Gtk.ApplicationWindow):
         notebook = self.groups.get(self.current)
         session = notebook.get_nth_page(notebook.get_current_page()) if notebook else None
         if action == "search":
-            self.terminal_search_button.set_active(True)
-            self.terminal_search_entry.grab_focus()
+            self.show_terminal_search()
             return True
         if action == "new_session":
             self.new_session()

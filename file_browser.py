@@ -337,6 +337,7 @@ class FileTransfers:
         if not visible and was_visible and self.panel.get_allocated_width() > 0:
             self.sidebar_width = pane.get_allocated_width() - pane.get_position()
         self.panel.set_visible(visible)
+        self.owner.file_dock.set_visible(visible)
         self.owner.files_toggle.set_tooltip_text("收起文件栏（SFTP）" if visible else "展开文件栏（SFTP）")
         if visible != was_visible:
             GLib.idle_add(self.restore_width)
